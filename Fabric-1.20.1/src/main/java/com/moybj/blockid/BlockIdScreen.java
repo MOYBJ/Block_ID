@@ -1,10 +1,6 @@
 package com.moybj.blockid;
 
-import net.sourceforge.pinyin4j.PinyinHelper;
-import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
-import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
-import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
-import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
+import com.github.promeg.pinyinhelper.Pinyin;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -21,8 +17,10 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class BlockIdScreen extends Screen {
@@ -31,12 +29,14 @@ public class BlockIdScreen extends Screen {
 
     
     private boolean targetTabMode = false;
+    private int midTabMode = 0;
 
     private TextFieldWidget searchBar;
     private TextFieldWidget targetSearchBar;
 
     private List<String> allBlocks;
     private List<String> favoriteBlocks;
+    private List<HistoryManager.HistoryItem> historyItems;
 
     private final List<String> selectedIds = new ArrayList<>();
     private final List<String> selectedSources = new ArrayList<>();
@@ -50,6 +50,7 @@ public class BlockIdScreen extends Screen {
     private int propScroll = 0;
     
     private TextFieldWidget weightInputField = null;
+    private TextFieldWidget renameGroupField = null;
     private String weightInputBlockId = null;
     
     private String draggingWeightBlockId = null;
@@ -66,11 +67,15 @@ public class BlockIdScreen extends Screen {
 
     private int scrollAll = 0;
     private int scrollFavorite = 0;
+    private int scrollHistory = 0;
     private int scrollSelected = 0;
     private int scrollSrc = 0;
     private int scrollTgt = 0;
     private int scrollSelSrc = 0;
     private int scrollSelTgt = 0;
+
+    private int currentPage = 0;
+    private static final int ITEMS_PER_PAGE = 18;
 
     private final int ITEM_HEIGHT = 24;
     private int listStartY, listEndY, bottomBtnY, tipY;
@@ -144,16 +149,11 @@ public class BlockIdScreen extends Screen {
         return PROP_VALUE_MAP.getOrDefault(value, value);
     }
 
-    private static final HanyuPinyinOutputFormat PINYIN_FORMAT = new HanyuPinyinOutputFormat();
-    static {
-        PINYIN_FORMAT.setCaseType(HanyuPinyinCaseType.LOWERCASE);
-        PINYIN_FORMAT.setToneType(HanyuPinyinToneType.WITHOUT_TONE);
-    }
-
     public BlockIdScreen() {
         super(Text.translatable("gui.block_id.title"));
         this.allBlocks = loadAllBlocks();
         this.favoriteBlocks = FavoritesManager.getCurrentBlocks();
+        this.historyItems = HistoryManager.getHistory();
         for (String blockId : allBlocks) {
             String displayName = getBlockDisplayName(blockId).toLowerCase();
             fullPinyinCache.put(blockId, getAllFullPinyins(displayName));
@@ -257,6 +257,7 @@ public class BlockIdScreen extends Screen {
                         String finalString = source + " " + target;
                         this.client.keyboard.setClipboard(finalString);
                         this.client.player.sendMessage(Text.literal("已复制替换ID: " + finalString), true);
+                        addToHistory(finalString, "replace");
                     } else {
                         this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
                     }
@@ -265,6 +266,7 @@ public class BlockIdScreen extends Screen {
                         String id = joinBlocksWithProperties(selectedIds);
                         this.client.keyboard.setClipboard(id);
                         this.client.player.sendMessage(Text.literal("已复制方块ID: " + id), true);
+                        addToHistory(id, "id");
                     } else {
                         this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
                     }
@@ -274,7 +276,9 @@ public class BlockIdScreen extends Screen {
             if (!isReplaceMode) {
                 this.addSelectableChild(ButtonWidget.builder(Text.literal("复制 (Set)"), b -> {
                     if (!selectedIds.isEmpty()) {
-                        WorldEditIntegration.copySetCommand(joinBlocksWithProperties(selectedIds));
+                        String setCmd = joinBlocksWithProperties(selectedIds);
+                        WorldEditIntegration.copySetCommand(setCmd);
+                        addToHistory(setCmd, "set");
                     } else {
                         this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
                     }
@@ -282,7 +286,10 @@ public class BlockIdScreen extends Screen {
             } else {
                 this.addSelectableChild(ButtonWidget.builder(Text.literal("复制 (Replace)"), b -> {
                     if (!selectedSources.isEmpty() && !selectedTargets.isEmpty()) {
-                        WorldEditIntegration.copyReplaceCommand(joinBlocksWithoutWeight(selectedSources), joinBlocksWithProperties(selectedTargets));
+                        String repSrc = joinBlocksWithoutWeight(selectedSources);
+                        String repTgt = joinBlocksWithProperties(selectedTargets);
+                        WorldEditIntegration.copyReplaceCommand(repSrc, repTgt);
+                        addToHistory(repSrc + " " + repTgt, "replace");
                     } else {
                         this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
                     }
@@ -307,6 +314,22 @@ public class BlockIdScreen extends Screen {
             if (keyCode == 256) { weightInputBlockId = null; weightInputField.setFocused(false); return true; }
             return weightInputField.keyPressed(keyCode, scanCode, modifiers);
         }
+        if (renameGroupField != null && renameGroupField.isFocused()) {
+            if (keyCode == 257 || keyCode == 335) {
+                String newName = renameGroupField.getText();
+                if (newName != null && !newName.isEmpty()) {
+                    FavoritesManager.renameGroup(FavoritesManager.getCurrentGroupIndex(), newName);
+                    this.client.player.sendMessage(Text.literal("组已重命名为: " + newName), true);
+                }
+                renameGroupField = null;
+                return true;
+            }
+            if (keyCode == 256) {
+                renameGroupField = null;
+                return true;
+            }
+            return renameGroupField.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (this.searchBar.keyPressed(keyCode, scanCode, modifiers) || this.targetSearchBar.keyPressed(keyCode, scanCode, modifiers)) {
             resetScroll();
             return true;
@@ -319,6 +342,9 @@ public class BlockIdScreen extends Screen {
         if (weightInputBlockId != null && weightInputField != null && weightInputField.isFocused()) {
             return weightInputField.charTyped(codePoint, modifiers);
         }
+        if (renameGroupField != null && renameGroupField.isFocused()) {
+            return renameGroupField.charTyped(codePoint, modifiers);
+        }
         if (this.searchBar.charTyped(codePoint, modifiers) || this.targetSearchBar.charTyped(codePoint, modifiers)) {
             resetScroll();
             return true;
@@ -329,11 +355,14 @@ public class BlockIdScreen extends Screen {
     private void resetScroll() {
         scrollAll = 0;
         scrollFavorite = 0;
+        scrollHistory = 0;
         scrollSelected = 0;
         scrollSrc = 0;
         scrollTgt = 0;
         scrollSelSrc = 0;
         scrollSelTgt = 0;
+        
+        currentPage = 0;
     }
 
     private void renderScrollbar(DrawContext graphics, int x, int y, int height, int scroll, int totalContent) {
@@ -412,9 +441,9 @@ public class BlockIdScreen extends Screen {
             
             if (targetTabMode) {
                 graphics.enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
-                renderList(graphics, midX, listStartY - scrollFavorite, favoriteBlocks, selectedTargets, 0xCCFF9800, 0xAA000000, "frequent");
+                renderList(graphics, midX, listStartY - scrollFavorite, cachedFilteredFavorite, selectedTargets, 0xCCFF9800, 0xAA000000, "frequent");
                 graphics.disableScissor();
-                renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, favoriteBlocks.size());
+                renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, cachedFilteredFavorite.size());
             } else {
                 graphics.enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
                 renderList(graphics, midX, listStartY - scrollTgt, cachedFilteredTarget, selectedTargets, 0xCCFF9800, 0xAA000000, "all");
@@ -432,17 +461,62 @@ public class BlockIdScreen extends Screen {
             renderList(graphics, rightX, rightLineY + 10 - scrollSelTgt, selectedTargets, null, 0xCCFF9800, 0xAA000000, "selected");
             graphics.disableScissor();
         } else {
-            graphics.drawText(this.textRenderer, "全部方块", leftX, listHeaderY, 0xFFAAAAAA, false);
+            List<String> pageBlocks = getCurrentPageBlocks();
+            graphics.drawText(this.textRenderer, "全部方块 (第" + (currentPage + 1) + "/" + getTotalPages() + "页)", leftX, listHeaderY, 0xFFAAAAAA, false);
             graphics.enableScissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 10);
-            renderList(graphics, leftX, listStartY - scrollAll, cachedFilteredAll, selectedIds, 0xCC4CAF50, 0xAA000000, "all");
+            renderList(graphics, leftX, listStartY - scrollAll, pageBlocks, selectedIds, 0xCC4CAF50, 0xAA000000, "all");
             graphics.disableScissor();
-            renderScrollbar(graphics, leftX + colWidth, listStartY, listEndY - listStartY, scrollAll, cachedFilteredAll.size());
+            renderScrollbar(graphics, leftX + colWidth, listStartY, listEndY - listStartY, scrollAll, pageBlocks.size());
 
-            graphics.drawText(this.textRenderer, "常用方块", midX, listHeaderY, 0xFFAAAAAA, false);
-            graphics.enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
-            renderList(graphics, midX, listStartY - scrollFavorite, favoriteBlocks, selectedIds, 0xCC4CAF50, 0xAA000000, "frequent");
+            int tabW = colWidth / 2;
+            int favColor = midTabMode == 0 ? 0xFF4CAF50 : 0xFF666666;
+            int histColor = midTabMode == 1 ? 0xFF4CAF50 : 0xFF666666;
+            graphics.drawText(this.textRenderer, "收藏夹", midX, listHeaderY, favColor, false);
+            graphics.drawText(this.textRenderer, "历史", midX + tabW, listHeaderY, histColor, false);
+            int listOffset = 0;
+            if (midTabMode == 0) {
+                int groupsSize = FavoritesManager.getGroups().size();
+                int curIdx = FavoritesManager.getCurrentGroupIndex();
+                String groupName = FavoritesManager.getCurrentGroup().name;
+                int nameY = listHeaderY + 16;
+                int btnW = 20;
+                int btnH = 14;
+                int btnGap = 4;
+                int step = btnW + btnGap;
+                boolean[] visible = {curIdx > 0, curIdx < groupsSize - 1, true, true, groupsSize > 1};
+                int btnY = listHeaderY + 30;
+                if (renameGroupField != null) {
+                    renameGroupField.render(graphics, mouseX, mouseY, partialTick);
+                } else {
+                    graphics.drawText(this.textRenderer, groupName, midX, nameY, 0xFFFFFFFF, false);
+                }
+                graphics.drawText(this.textRenderer, (curIdx + 1) + "/" + groupsSize, midX + this.textRenderer.getWidth(groupName) + 6, nameY, 0xFFAAAAAA, false);
+                int[] colors = {0xFF666666, 0xFF666666, 0xFF388E3C, 0xFF1565C0, 0xFFC62828};
+                String[] labels = {"<", ">", "+", "R", "D"};
+                int bx = midX;
+                for (int i = 0; i < 5; i++) {
+                    if (!visible[i]) continue;
+                    boolean hover = mouseX >= bx && mouseX <= bx + btnW && mouseY >= btnY && mouseY <= btnY + btnH;
+                    graphics.fill(bx, btnY, bx + btnW, btnY + btnH, hover ? colors[i] + 0x222222 : colors[i]);
+                    graphics.fill(bx, btnY, bx + btnW, btnY + 1, 0xFFFFFFFF);
+                    graphics.fill(bx, btnY + btnH - 1, bx + btnW, btnY + btnH, 0xFF000000);
+                    graphics.drawCenteredTextWithShadow(this.textRenderer, labels[i], bx + btnW / 2, btnY + 3, 0xFFFFFFFF);
+                    bx += step;
+                }
+                int lineY = listHeaderY + 48;
+                graphics.fill(midX, lineY, midX + colWidth, lineY + 1, 0xFF4A90D9);
+                listOffset = 40;
+            }
+            graphics.enableScissor(midX - 5, listStartY + listOffset, midX + colWidth, listEndY + 10);
+            if (midTabMode == 0) {
+                renderList(graphics, midX, listStartY + listOffset - scrollFavorite, cachedFilteredFavorite, selectedIds, 0xCC4CAF50, 0xAA000000, "frequent");
+            } else {
+                renderHistoryList(graphics, midX, listStartY - scrollHistory);
+            }
             graphics.disableScissor();
-            renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, favoriteBlocks.size());
+            if (midTabMode == 0 && listOffset > 0) {
+                renderScrollbar(graphics, midX + colWidth, listStartY + listOffset, listEndY - listStartY - listOffset, scrollFavorite, cachedFilteredFavorite.size());
+            }
 
             graphics.drawText(this.textRenderer, "已选列表", rightX, listHeaderY, 0xFFAAAAAA, false);
             graphics.enableScissor(rightX - 5, listStartY, rightX + colWidth, listEndY + 10);
@@ -462,6 +536,21 @@ public class BlockIdScreen extends Screen {
         
         if (editingBlockId != null) {
             renderPropertyEditor(graphics, mouseX, mouseY);
+        }
+
+        
+        if (!isReplaceMode) {
+            int pageBtnY = listEndY + 5;
+            int pageBtnW = 50;
+            int pageBtnH = 18;
+            if (currentPage > 0) {
+                graphics.fill(leftX, pageBtnY, leftX + pageBtnW, pageBtnY + pageBtnH, 0xFF4CAF50);
+                graphics.drawCenteredTextWithShadow(this.textRenderer, Text.literal("上一页"), leftX + pageBtnW / 2, pageBtnY + 5, 0xFFFFFFFF);
+            }
+            if (currentPage < getTotalPages() - 1) {
+                graphics.fill(leftX + colWidth - pageBtnW, pageBtnY, leftX + colWidth, pageBtnY + pageBtnH, 0xFF4CAF50);
+                graphics.drawCenteredTextWithShadow(this.textRenderer, Text.literal("下一页"), leftX + colWidth - pageBtnW / 2, pageBtnY + 5, 0xFFFFFFFF);
+            }
         }
     }
 
@@ -628,7 +717,7 @@ public class BlockIdScreen extends Screen {
 
     private List<String> filterBlocks(List<String> source, String search) {
         if (search.isEmpty()) return source;
-        String cleanSearch = search.replace("_", "").replace(" ", "");
+        String cleanSearch = search.toLowerCase().replace("_", "").replace(" ", "");
         List<String> result = new ArrayList<>();
         for (String blockId : source) {
             String displayName = getBlockDisplayName(blockId).toLowerCase();
@@ -655,44 +744,61 @@ public class BlockIdScreen extends Screen {
         return result;
     }
 
+    /**
+     * 生成全拼候选。返回多个候选以兼容 ü 的两种常见输入习惯，
+     * 例如「绿宝石」同时产出 lvbaoshi 与 lubaoshi，用户输入任一种都能命中。
+     */
     private List<String> getAllFullPinyins(String chinese) {
-        List<StringBuilder> builders = new ArrayList<>();
-        builders.add(new StringBuilder());
-        for (char c : chinese.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fa5') {
-                try {
-                    String[] pinyins = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
-                    if (pinyins != null && pinyins.length > 0) {
-                        List<StringBuilder> newBuilders = new ArrayList<>();
-                        for (StringBuilder sb : builders) for (String py : pinyins) { StringBuilder newSb = new StringBuilder(sb); newSb.append(py); newBuilders.add(newSb); }
-                        builders = newBuilders;
-                    } else for (StringBuilder sb : builders) sb.append(c);
-                } catch (BadHanyuPinyinOutputFormatCombination e) { for (StringBuilder sb : builders) sb.append(c); }
-            } else for (StringBuilder sb : builders) sb.append(c);
-        }
-        List<String> results = new ArrayList<>();
-        for (StringBuilder sb : builders) results.add(sb.toString());
+        String primary = buildPinyin(chinese, false);
+        String alias = buildPinyin(chinese, true);
+        if (alias.equals(primary)) return Collections.singletonList(primary);
+        List<String> results = new ArrayList<>(2);
+        results.add(primary);
+        results.add(alias);
         return results;
     }
 
     private List<String> getAllInitials(String chinese) {
-        List<StringBuilder> builders = new ArrayList<>();
-        builders.add(new StringBuilder());
-        for (char c : chinese.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fa5') {
-                try {
-                    String[] pinyins = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
-                    if (pinyins != null && pinyins.length > 0) {
-                        List<StringBuilder> newBuilders = new ArrayList<>();
-                        for (StringBuilder sb : builders) for (String py : pinyins) { StringBuilder newSb = new StringBuilder(sb); newSb.append(py.charAt(0)); newBuilders.add(newSb); }
-                        builders = newBuilders;
-                    }
-                } catch (BadHanyuPinyinOutputFormatCombination e) { }
-            } else for (StringBuilder sb : builders) sb.append(c);
-        }
-        List<String> results = new ArrayList<>();
-        for (StringBuilder sb : builders) results.add(sb.toString());
+        String primary = buildPinyin(chinese, false, true);
+        String alias = buildPinyin(chinese, true, true);
+        if (alias.equals(primary)) return Collections.singletonList(primary);
+        List<String> results = new ArrayList<>(2);
+        results.add(primary);
+        results.add(alias);
         return results;
+    }
+
+    private String buildPinyin(String chinese, boolean useUmlautAlias) {
+        return buildPinyin(chinese, useUmlautAlias, false);
+    }
+
+    /**
+     * @param useUmlautAlias true 时把 ü 记作 u（绿->lu），false 时记作 v（绿->lv）
+     * @param initialOnly    只取每个字的首字母
+     */
+    private String buildPinyin(String chinese, boolean useUmlautAlias, boolean initialOnly) {
+        StringBuilder builder = new StringBuilder(chinese.length());
+        for (char c : chinese.toCharArray()) {
+            String pinyin = toPinyin(c);
+            if (pinyin == null) {
+                builder.append(c);
+                continue;
+            }
+            if (useUmlautAlias) pinyin = pinyin.replace('v', 'u');
+            builder.append(initialOnly ? pinyin.charAt(0) : pinyin);
+        }
+        return builder.toString();
+    }
+
+    /**
+     * 取单个汉字的拼音（小写、无声调）；非汉字返回 null。
+     * 底层库返回大写拼音，其中 ü 记作 v（如 绿->LV），此处统一转小写。
+     */
+    private static String toPinyin(char c) {
+        if (c < '\u4e00' || c > '\u9fa5') return null;
+        String pinyin = Pinyin.toPinyin(c);
+        if (pinyin == null || pinyin.isEmpty()) return null;
+        return pinyin.toLowerCase(Locale.ROOT);
     }
 
     private String getBlockDisplayName(String blockId) {
@@ -850,6 +956,84 @@ public class BlockIdScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         
+        if (!isReplaceMode && renameGroupField == null) {
+            int tabY = listHeaderY;
+            int tabW = colWidth / 2;
+            if (mouseY >= tabY && mouseY <= tabY + 12) {
+                if (mouseX >= midX && mouseX <= midX + tabW) {
+                    midTabMode = 0; return true;
+                }
+                if (mouseX >= midX + tabW && mouseX <= midX + colWidth) {
+                    midTabMode = 1; return true;
+                }
+            }
+            if (midTabMode == 0) {
+                int groupsSize = FavoritesManager.getGroups().size();
+                int curIdx = FavoritesManager.getCurrentGroupIndex();
+                int btnW = 20;
+                int btnH = 14;
+                int btnGap = 4;
+                int step = btnW + btnGap;
+                int btnY = listHeaderY + 30;
+                boolean[] visible = {curIdx > 0, curIdx < groupsSize - 1, true, true, groupsSize > 1};
+                if (mouseY >= btnY && mouseY <= btnY + btnH) {
+                    int bx = midX;
+                    for (int i = 0; i < 5; i++) {
+                        if (!visible[i]) continue;
+                        if (mouseX >= bx && mouseX <= bx + btnW) {
+                            if (i == 0) { FavoritesManager.setCurrentGroupIndex(curIdx - 1); }
+                            else if (i == 1) { FavoritesManager.setCurrentGroupIndex(curIdx + 1); }
+                            else if (i == 2) { FavoritesManager.addGroup("新组" + (groupsSize + 1)); }
+                            else if (i == 3) {
+                                if (renameGroupField == null) {
+                                    renameGroupField = new TextFieldWidget(this.textRenderer, midX, listHeaderY + 14, colWidth - 100, 14, Text.literal(""));
+                                    renameGroupField.setMaxLength(16);
+                                    renameGroupField.setText(FavoritesManager.getCurrentGroup().name);
+                                    renameGroupField.setFocused(true);
+                                    this.setFocused(renameGroupField);
+                                } else {
+                                    String newName = renameGroupField.getText();
+                                    if (newName != null && !newName.isEmpty()) {
+                                        FavoritesManager.renameGroup(curIdx, newName);
+                                        this.client.player.sendMessage(Text.literal("组已重命名为: " + newName), true);
+                                    }
+                                    renameGroupField = null;
+                                }
+                                return true;
+                            }
+                            else if (i == 4) { FavoritesManager.removeGroup(curIdx); }
+                            favoriteBlocks = FavoritesManager.getCurrentBlocks();
+                            cachedFilteredFavorite = filterBlocks(favoriteBlocks, searchBar.getText());
+                            return true;
+                        }
+                        bx += step;
+                    }
+                }
+            }
+            int pageBtnY = listEndY + 5;
+            int pageBtnW = 50;
+            if (mouseY >= pageBtnY && mouseY <= pageBtnY + 18) {
+                if (mouseX >= leftX && mouseX <= leftX + pageBtnW && currentPage > 0) {
+                    currentPage--; scrollAll = 0; return true;
+                }
+                if (mouseX >= leftX + colWidth - pageBtnW && mouseX <= leftX + colWidth && currentPage < getTotalPages() - 1) {
+                    currentPage++; scrollAll = 0; return true;
+                }
+            }
+            if (midTabMode == 1 && mouseX >= midX && mouseX <= midX + colWidth) {
+                int y = listStartY - scrollHistory;
+                for (int i = 0; i < historyItems.size(); i++) {
+                    if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
+                        HistoryManager.HistoryItem item = historyItems.get(i);
+                        this.client.keyboard.setClipboard(item.content);
+                        this.client.player.sendMessage(Text.literal("已复制历史记录: " + item.content), true);
+                        return true;
+                    }
+                    y += ITEM_HEIGHT;
+                }
+            }
+        }
+        
         if (editingBlockId != null) {
             int[] b = getPropertyPanelBounds();
             int panelX = b[0], panelY = b[1], panelW = b[2], panelH = b[3], contentH = b[4];
@@ -901,7 +1085,8 @@ public class BlockIdScreen extends Screen {
         
         if (mouseX >= leftX && mouseX <= leftX + colWidth) {
             int y = listStartY - (isReplaceMode ? scrollSrc : scrollAll);
-            for (String blockId : cachedFilteredAll) {
+            List<String> leftList = isReplaceMode ? cachedFilteredAll : getCurrentPageBlocks();
+            for (String blockId : leftList) {
                 if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
                     if (mouseX >= leftX + colWidth - 16 && mouseX <= leftX + colWidth) toggleFavorite(blockId);
                     else {
@@ -915,18 +1100,20 @@ public class BlockIdScreen extends Screen {
         }
 
         
-        if (mouseX >= midX && mouseX <= midX + colWidth) {
+        if (mouseX >= midX && mouseX <= midX + colWidth && !(!isReplaceMode && midTabMode == 1)) {
             List<String> targetList;
             int scroll;
+            int listOffset = 0;
             if (isReplaceMode) {
-                targetList = targetTabMode ? favoriteBlocks : cachedFilteredTarget;
+                targetList = targetTabMode ? cachedFilteredFavorite : cachedFilteredTarget;
                 scroll = targetTabMode ? scrollFavorite : scrollTgt;
             } else {
-                targetList = favoriteBlocks;
+                targetList = cachedFilteredFavorite;
                 scroll = scrollFavorite;
+                listOffset = 40;
             }
 
-            int y = listStartY - scroll;
+            int y = listStartY + listOffset - scroll;
             for (String blockId : targetList) {
                 if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
                     if (mouseX >= midX + colWidth - 16 && mouseX <= midX + colWidth) toggleFavorite(blockId);
@@ -1084,7 +1271,9 @@ public class BlockIdScreen extends Screen {
         }
 
         if (mouseX >= leftX && mouseX < leftX + colWidth) {
-            int maxScroll = getMaxScroll(cachedFilteredAll.size(), listEndY - listStartY);
+            int maxScroll = isReplaceMode
+                    ? getMaxScroll(cachedFilteredAll.size(), listEndY - listStartY)
+                    : getMaxScroll(getCurrentPageBlocks().size(), listEndY - listStartY);
             if (isReplaceMode) {
                 scrollSrc -= delta * 20; scrollSrc = Math.max(0, Math.min(maxScroll, scrollSrc));
             } else {
@@ -1094,14 +1283,18 @@ public class BlockIdScreen extends Screen {
         } else if (mouseX >= midX && mouseX < midX + colWidth) {
             if (isReplaceMode) {
                 if (targetTabMode) {
-                    int maxScroll = getMaxScroll(favoriteBlocks.size(), listEndY - listStartY);
+                    int maxScroll = getMaxScroll(cachedFilteredFavorite.size(), listEndY - listStartY);
                     scrollFavorite -= delta * 20; scrollFavorite = Math.max(0, Math.min(maxScroll, scrollFavorite));
                 } else {
                     int maxScroll = getMaxScroll(cachedFilteredTarget.size(), listEndY - listStartY);
                     scrollTgt -= delta * 20; scrollTgt = Math.max(0, Math.min(maxScroll, scrollTgt));
                 }
+            } else if (midTabMode == 1) {
+                
+                int maxScroll = getMaxScroll(historyItems.size(), listEndY - listStartY);
+                scrollHistory -= delta * 20; scrollHistory = Math.max(0, Math.min(maxScroll, scrollHistory));
             } else {
-                int maxScroll = getMaxScroll(favoriteBlocks.size(), listEndY - listStartY);
+                int maxScroll = getMaxScroll(cachedFilteredFavorite.size(), listEndY - listStartY - 40);
                 scrollFavorite -= delta * 20; scrollFavorite = Math.max(0, Math.min(maxScroll, scrollFavorite));
             }
             return true;
@@ -1164,6 +1357,51 @@ public class BlockIdScreen extends Screen {
                 }
             }
         }
+    }
+
+    private int getTotalPages() {
+        return Math.max(1, (int) Math.ceil((double) cachedFilteredAll.size() / ITEMS_PER_PAGE));
+    }
+
+    private List<String> getCurrentPageBlocks() {
+        int start = currentPage * ITEMS_PER_PAGE;
+        int end = Math.min(start + ITEMS_PER_PAGE, cachedFilteredAll.size());
+        if (start >= cachedFilteredAll.size()) {
+            currentPage = 0;
+            start = 0;
+            end = Math.min(ITEMS_PER_PAGE, cachedFilteredAll.size());
+        }
+        return new ArrayList<>(cachedFilteredAll.subList(start, end));
+    }
+
+    private void renderHistoryList(DrawContext graphics, int x, int y) {
+        for (int i = 0; i < historyItems.size(); i++) {
+            int itemY = y + i * ITEM_HEIGHT;
+            if (itemY < listStartY - ITEM_HEIGHT || itemY > listEndY) continue;
+            HistoryManager.HistoryItem item = historyItems.get(i);
+            graphics.fill(x, itemY, x + colWidth, itemY + ITEM_HEIGHT - 2, 0xAA000000);
+            String modeText = "id".equals(item.mode) ? "[ID]" : "set".equals(item.mode) ? "[SET]" : "[REP]";
+            String[] ids = item.content.split(",");
+            StringBuilder names = new StringBuilder();
+            for (String id : ids) {
+                id = id.trim();
+                if (id.contains("%")) id = id.substring(id.indexOf("%") + 1);
+                if (id.contains(" ")) id = id.substring(id.lastIndexOf(" ") + 1);
+                String name = getBlockDisplayName(id);
+                if (name != null && !name.isEmpty()) names.append(name).append(", ");
+                else names.append(id).append(", ");
+            }
+            String nameStr = names.toString();
+            if (nameStr.endsWith(", ")) nameStr = nameStr.substring(0, nameStr.length() - 2);
+            String display = modeText + " " + nameStr;
+            if (display.length() > 28) display = display.substring(0, 28) + "...";
+            graphics.drawText(this.textRenderer, display, x + 4, itemY + 6, 0xFFAAAAAA, false);
+        }
+    }
+
+    private void addToHistory(String content, String mode) {
+        HistoryManager.addRecord(content, mode);
+        historyItems = HistoryManager.getHistory();
     }
 
     @Override

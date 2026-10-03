@@ -31,9 +31,6 @@ public class BlockID implements ClientModInitializer {
         
         ConfigManager.init();
 
-        
-        ClientEvents.register();
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             
             while (OPEN_GUI_KEY.wasPressed()) {

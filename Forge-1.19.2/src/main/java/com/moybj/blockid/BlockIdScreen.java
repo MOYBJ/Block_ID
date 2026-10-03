@@ -1,10 +1,6 @@
 package com.moybj.blockid;
 
-import net.sourceforge.pinyin4j.PinyinHelper;
-import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
-import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
-import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
-import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
+import com.github.promeg.pinyinhelper.Pinyin;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.components.Button;
@@ -22,8 +18,10 @@ import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class BlockIdScreen extends Screen {
@@ -149,12 +147,6 @@ public class BlockIdScreen extends Screen {
 
     private static String mapPropValue(String value) {
         return PROP_VALUE_MAP.getOrDefault(value, value);
-    }
-
-    private static final HanyuPinyinOutputFormat PINYIN_FORMAT = new HanyuPinyinOutputFormat();
-    static {
-        PINYIN_FORMAT.setCaseType(HanyuPinyinCaseType.LOWERCASE);
-        PINYIN_FORMAT.setToneType(HanyuPinyinToneType.WITHOUT_TONE);
     }
 
     public BlockIdScreen() {
@@ -336,11 +328,14 @@ public class BlockIdScreen extends Screen {
     private void resetScroll() {
         scrollAll = 0;
         scrollFavorite = 0;
+        scrollHistory = 0;
         scrollSelected = 0;
         scrollSrc = 0;
         scrollTgt = 0;
         scrollSelSrc = 0;
         scrollSelTgt = 0;
+        
+        currentPage = 0;
     }
 
     private void renderScrollbar(PoseStack graphics, int x, int y, int height, int scroll, int totalContent) {
@@ -681,7 +676,7 @@ public class BlockIdScreen extends Screen {
 
     private List<String> filterBlocks(List<String> source, String search) {
         if (search.isEmpty()) return source;
-        String cleanSearch = search.replace("_", "").replace(" ", "");
+        String cleanSearch = search.toLowerCase().replace("_", "").replace(" ", "");
         List<String> result = new ArrayList<>();
         for (String blockId : source) {
             String displayName = getBlockDisplayName(blockId).toLowerCase();
@@ -708,44 +703,61 @@ public class BlockIdScreen extends Screen {
         return result;
     }
 
+    /**
+     * 生成全拼候选。返回多个候选以兼容 ü 的两种常见输入习惯，
+     * 例如「绿宝石」同时产出 lvbaoshi 与 lubaoshi，用户输入任一种都能命中。
+     */
     private List<String> getAllFullPinyins(String chinese) {
-        List<StringBuilder> builders = new ArrayList<>();
-        builders.add(new StringBuilder());
-        for (char c : chinese.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fa5') {
-                try {
-                    String[] pinyins = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
-                    if (pinyins != null && pinyins.length > 0) {
-                        List<StringBuilder> newBuilders = new ArrayList<>();
-                        for (StringBuilder sb : builders) for (String py : pinyins) { StringBuilder newSb = new StringBuilder(sb); newSb.append(py); newBuilders.add(newSb); }
-                        builders = newBuilders;
-                    } else for (StringBuilder sb : builders) sb.append(c);
-                } catch (BadHanyuPinyinOutputFormatCombination e) { for (StringBuilder sb : builders) sb.append(c); }
-            } else for (StringBuilder sb : builders) sb.append(c);
-        }
-        List<String> results = new ArrayList<>();
-        for (StringBuilder sb : builders) results.add(sb.toString());
+        String primary = buildPinyin(chinese, false);
+        String alias = buildPinyin(chinese, true);
+        if (alias.equals(primary)) return Collections.singletonList(primary);
+        List<String> results = new ArrayList<>(2);
+        results.add(primary);
+        results.add(alias);
         return results;
     }
 
     private List<String> getAllInitials(String chinese) {
-        List<StringBuilder> builders = new ArrayList<>();
-        builders.add(new StringBuilder());
-        for (char c : chinese.toCharArray()) {
-            if (c >= '\u4e00' && c <= '\u9fa5') {
-                try {
-                    String[] pinyins = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
-                    if (pinyins != null && pinyins.length > 0) {
-                        List<StringBuilder> newBuilders = new ArrayList<>();
-                        for (StringBuilder sb : builders) for (String py : pinyins) { StringBuilder newSb = new StringBuilder(sb); newSb.append(py.charAt(0)); newBuilders.add(newSb); }
-                        builders = newBuilders;
-                    }
-                } catch (BadHanyuPinyinOutputFormatCombination e) { }
-            } else for (StringBuilder sb : builders) sb.append(c);
-        }
-        List<String> results = new ArrayList<>();
-        for (StringBuilder sb : builders) results.add(sb.toString());
+        String primary = buildPinyin(chinese, false, true);
+        String alias = buildPinyin(chinese, true, true);
+        if (alias.equals(primary)) return Collections.singletonList(primary);
+        List<String> results = new ArrayList<>(2);
+        results.add(primary);
+        results.add(alias);
         return results;
+    }
+
+    private String buildPinyin(String chinese, boolean useUmlautAlias) {
+        return buildPinyin(chinese, useUmlautAlias, false);
+    }
+
+    /**
+     * @param useUmlautAlias true 时把 ü 记作 u（绿->lu），false 时记作 v（绿->lv）
+     * @param initialOnly    只取每个字的首字母
+     */
+    private String buildPinyin(String chinese, boolean useUmlautAlias, boolean initialOnly) {
+        StringBuilder builder = new StringBuilder(chinese.length());
+        for (char c : chinese.toCharArray()) {
+            String pinyin = toPinyin(c);
+            if (pinyin == null) {
+                builder.append(c);
+                continue;
+            }
+            if (useUmlautAlias) pinyin = pinyin.replace('v', 'u');
+            builder.append(initialOnly ? pinyin.charAt(0) : pinyin);
+        }
+        return builder.toString();
+    }
+
+    /**
+     * 取单个汉字的拼音（小写、无声调）；非汉字返回 null。
+     * 底层库返回大写拼音，其中 ü 记作 v（如 绿->LV），此处统一转小写。
+     */
+    private static String toPinyin(char c) {
+        if (c < '\u4e00' || c > '\u9fa5') return null;
+        String pinyin = Pinyin.toPinyin(c);
+        if (pinyin == null || pinyin.isEmpty()) return null;
+        return pinyin.toLowerCase(Locale.ROOT);
     }
 
     private String getBlockDisplayName(String blockId) {
@@ -1221,7 +1233,9 @@ public class BlockIdScreen extends Screen {
 
         if (mouseX >= leftX && mouseX < leftX + colWidth) {
             
-            int maxScroll = getMaxScroll(cachedFilteredAll.size(), listEndY - listStartY);
+            int maxScroll = isReplaceMode
+                    ? getMaxScroll(cachedFilteredAll.size(), listEndY - listStartY)
+                    : getMaxScroll(getCurrentPageBlocks().size(), listEndY - listStartY);
             if (isReplaceMode) {
                 scrollSrc -= delta * 20; scrollSrc = Math.max(0, Math.min(maxScroll, scrollSrc));
             } else {
@@ -1238,6 +1252,10 @@ public class BlockIdScreen extends Screen {
                     int maxScroll = getMaxScroll(cachedFilteredTarget.size(), listEndY - listStartY);
                     scrollTgt -= delta * 20; scrollTgt = Math.max(0, Math.min(maxScroll, scrollTgt));
                 }
+            } else if (midTabMode == 1) {
+                
+                int maxScroll = getMaxScroll(historyItems.size(), listEndY - listStartY);
+                scrollHistory -= delta * 20; scrollHistory = Math.max(0, Math.min(maxScroll, scrollHistory));
             } else {
                 int maxScroll = getMaxScroll(favoriteBlocks.size(), listEndY - listStartY);
                 scrollFavorite -= delta * 20; scrollFavorite = Math.max(0, Math.min(maxScroll, scrollFavorite));

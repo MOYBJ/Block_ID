@@ -1,11 +1,11 @@
 modLoader="javafml"
-loaderversion="2.1.0-Release"
+loaderVersion="[43,)"
 license="Source-Visible - 允许学习修改，禁止二次发布修改版本"
 issueTrackerURL=""
 
 [[mods]]
 modId="block_id"
-version="2.1.0-Release"
+version="2.1.1-Beta"
 displayName="Block_ID"
 authors="MOYBJ"
 description='''A client mod for copying block IDs and generating WorldEdit commands.
@@ -16,20 +16,22 @@ credits="MOYBJ"
 [[dependencies.block_id]]
 modId="forge"
 mandatory=true
-versionRange="[47,)"
+versionRange="[43,)"
 ordering="NONE"
 side="CLIENT"
 
 [[dependencies.block_id]]
 modId="minecraft"
 mandatory=true
-versionRange="[1.20.1]"
+versionRange="[1.19.2]"
 ordering="NONE"
 side="CLIENT"
 
+# WorldEdit 为可选依赖：本模组只生成指令字符串，不调用其任何 API。
+# 未安装 WorldEdit 时仍可正常加载使用，仅提示指令需手动粘贴执行。
 [[dependencies.block_id]]
 modId="worldedit"
-mandatory=true
+mandatory=false
 versionRange="[7.2,)"
 ordering="AFTER"
 side="CLIENT"

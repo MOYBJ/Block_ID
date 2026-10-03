@@ -1,6 +1,6 @@
 # Block ID
 
-Minecraft 1.20.1 方块ID管理与 WorldEdit 指令生成客户端模组。
+Minecraft 1.19.2 方块ID管理与 WorldEdit 指令生成客户端模组（Fabric 版）。
 
 ## 功能
 
@@ -14,14 +14,18 @@ Minecraft 1.20.1 方块ID管理与 WorldEdit 指令生成客户端模组。
 
 ## 版本
 
-当前版本：**2.0.3.1-Release**
+当前版本：**2.1.1-Beta**
 
-支持加载器：Forge 47+ / Fabric 0.15+
+支持游戏版本：Minecraft 1.19.2
+支持加载器：Fabric Loader 0.14+
 
 ## 前置模组
 
-- WorldEdit（必需）
-- Cloth Config API（必需）
+无必需前置，下载即可使用。
+
+- 必需：Fabric API
+- 可选：WorldEdit —— 安装后生成的 `//set` / `//replace` 指令可直接粘贴执行；
+  未安装时模组功能完全不受影响，指令同样会复制到剪贴板，只是需要在聊天栏手动粘贴。
 
 ## 使用
 

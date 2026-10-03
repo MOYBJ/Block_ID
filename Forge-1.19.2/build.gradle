@@ -4,7 +4,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = '2.0.3.2-Release'
+version = '2.1.1-Beta'
 group = 'com.moybj'
 archivesBaseName = 'Block_ID-forge'
 
@@ -41,24 +41,16 @@ minecraft {
 
 repositories {
     mavenCentral()
-    maven {
-        name = 'CurseForge'
-        url = 'https://cursemaven.com'
-    }
-    maven {
-        name = 'Cloth Config'
-        url = 'https://maven.shedaniel.me/'
-    }
-    maven {
-        url 'https://jitpack.io'
-    }
 }
 
 dependencies {
     minecraft "net.minecraftforge:forge:1.19.2-43.3.0"
-    implementation fg.deobf("curse.maven:worldedit-225608:3922622")
-    implementation "me.shedaniel.cloth:cloth-config-forge:8.3.103"
-    minecraftLibrary 'com.belerweb:pinyin4j:2.5.1'
+
+    // 拼音库：Apache-2.0 许可，用于替代 GPL 系的 pinyin4j 以消除协议冲突
+    // ahocorasick 仅用于自定义词典分词，本场景不使用，排除以减小 Jar 体积
+    minecraftLibrary('io.github.biezhi:TinyPinyin:2.0.3.RELEASE') {
+        exclude group: 'org.ahocorasick', module: 'ahocorasick'
+    }
 }
 
 tasks.named('processResources', ProcessResources).configure {
