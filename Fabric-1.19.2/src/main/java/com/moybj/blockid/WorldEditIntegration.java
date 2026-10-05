@@ -1,7 +1,7 @@
 package com.moybj.blockid;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.fabricmc.loader.api.FabricLoader;
 
 public class WorldEditIntegration {
@@ -20,19 +20,19 @@ public class WorldEditIntegration {
     }
 
     public static void copySetCommand(String blockId) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         String command = "//set " + blockId;
-        mc.keyboard.setClipboard(command);
-        mc.player.sendMessage(Text.literal(buildTip(command)), true);
+        mc.keyboardHandler.setClipboard(command);
+        mc.player.displayClientMessage(Component.literal(buildTip(command)), true);
     }
 
     public static void copyReplaceCommand(String mask, String blockId) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         String command = "//replace " + mask + " " + blockId;
-        mc.keyboard.setClipboard(command);
-        mc.player.sendMessage(Text.literal(buildTip(command)), true);
+        mc.keyboardHandler.setClipboard(command);
+        mc.player.displayClientMessage(Component.literal(buildTip(command)), true);
     }
 
     private static String buildTip(String command) {

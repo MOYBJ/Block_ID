@@ -14,7 +14,7 @@ Minecraft 1.20.1 方块ID管理与 WorldEdit 指令生成客户端模组（Fabri
 
 ## 版本
 
-当前版本：**2.1.2-Release**
+当前版本：**2.1.2.1-Beta**
 
 支持游戏版本：Minecraft 1.20.1
 支持加载器：Fabric Loader 0.15+

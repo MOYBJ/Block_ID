@@ -5,7 +5,7 @@ issueTrackerURL=""
 
 [[mods]]
 modId="block_id"
-version="2.1.2-Release"
+version="2.1.2.1-Beta"
 displayName="Block_ID"
 authors="MOYBJ"
 description='''A client mod for copying block IDs and generating WorldEdit commands.

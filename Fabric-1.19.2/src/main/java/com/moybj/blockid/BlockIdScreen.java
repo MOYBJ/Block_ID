@@ -2,19 +2,19 @@ package com.moybj.blockid;
 
 import com.github.promeg.pinyinhelper.Pinyin;
 import com.mojang.blaze3d.systems.RenderSystem;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.block.AirBlock;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.util.registry.Registry;
-import net.minecraft.state.property.Property;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.world.level.block.AirBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.Registry;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,8 +30,8 @@ public class BlockIdScreen extends Screen {
     
     private boolean targetTabMode = false;
 
-    private TextFieldWidget searchBar;
-    private TextFieldWidget targetSearchBar;
+    private EditBox searchBar;
+    private EditBox targetSearchBar;
 
     private List<String> allBlocks;
     private List<String> favoriteBlocks;
@@ -47,7 +47,7 @@ public class BlockIdScreen extends Screen {
     private String editingBlockId = null;
     private int propScroll = 0;
     
-    private TextFieldWidget weightInputField = null;
+    private EditBox weightInputField = null;
     private String weightInputBlockId = null;
     
     private String draggingWeightBlockId = null;
@@ -143,7 +143,7 @@ public class BlockIdScreen extends Screen {
     }
 
     public BlockIdScreen() {
-        super(Text.translatable("gui.block_id.title"));
+        super(Component.translatable("gui.block_id.title"));
         this.allBlocks = loadAllBlocks();
         this.favoriteBlocks = FavoritesManager.getCurrentBlocks();
         for (String blockId : allBlocks) {
@@ -160,14 +160,14 @@ public class BlockIdScreen extends Screen {
     private List<String> loadAllBlocks() {
         List<String> all = new ArrayList<>();
         Registry.BLOCK.forEach(block -> {
-            Identifier rl = Registry.BLOCK.getId(block);
+            ResourceLocation rl = Registry.BLOCK.getKey(block);
             if (rl == null || EXCLUDED_NAMESPACES.contains(rl.getNamespace())) return;
             String id = rl.toString();
             
             
             if (!id.equals("minecraft:air")) {
                 if (block instanceof AirBlock) return;
-                String displayName = new ItemStack(block).getName().getString();
+                String displayName = new ItemStack(block).getHoverName().getString();
                 if (displayName.equals("空气") || displayName.equalsIgnoreCase("Air")) return;
             }
             all.add(id);
@@ -203,86 +203,86 @@ public class BlockIdScreen extends Screen {
         listHeaderY = 102;
 
         if (isReplaceMode) {
-            this.searchBar = new TextFieldWidget(this.textRenderer, leftX, inputY, colWidth, 20, Text.translatable("gui.block_id.search"));
-            this.targetSearchBar = new TextFieldWidget(this.textRenderer, midX, inputY, colWidth, 20, Text.translatable("gui.block_id.target_label"));
+            this.searchBar = new EditBox(this.font, leftX, inputY, colWidth, 20, Component.translatable("gui.block_id.search"));
+            this.targetSearchBar = new EditBox(this.font, midX, inputY, colWidth, 20, Component.translatable("gui.block_id.target_label"));
         } else {
-            this.searchBar = new TextFieldWidget(this.textRenderer, centerX - 100, inputY, 200, 20, Text.translatable("gui.block_id.search"));
-            this.targetSearchBar = new TextFieldWidget(this.textRenderer, midX, inputY, colWidth, 20, Text.translatable("gui.block_id.target_label"));
+            this.searchBar = new EditBox(this.font, centerX - 100, inputY, 200, 20, Component.translatable("gui.block_id.search"));
+            this.targetSearchBar = new EditBox(this.font, midX, inputY, colWidth, 20, Component.translatable("gui.block_id.target_label"));
             this.targetSearchBar.setVisible(false);
         }
         this.searchBar.setMaxLength(50);
         this.targetSearchBar.setMaxLength(50);
-        this.addSelectableChild(this.searchBar);
-        this.addSelectableChild(this.targetSearchBar);
+        this.addWidget(this.searchBar);
+        this.addWidget(this.targetSearchBar);
 
         
         if (isReplaceMode) {
             int tabY = 92;
             int tabH = 18;
-            this.addSelectableChild(new ButtonWidget(midX, tabY, colWidth / 2, tabH, Text.literal("目标方块"), b -> {
+            this.addWidget(new Button(midX, tabY, colWidth / 2, tabH, Component.literal("目标方块"), b -> {
                 this.targetTabMode = false;
             }));
 
-            this.addSelectableChild(new ButtonWidget(midX + colWidth / 2, tabY, colWidth / 2, tabH, Text.literal("常用方块"), b -> {
+            this.addWidget(new Button(midX + colWidth / 2, tabY, colWidth / 2, tabH, Component.literal("常用方块"), b -> {
                 this.targetTabMode = true;
             }));
         }
 
         String leftBtnText = isCommandMode ? "切换到ID复制" : "切换到指令模式";
-        this.addSelectableChild(new ButtonWidget(centerX - 105, toggleBtnY, 100, 20, Text.literal(leftBtnText), b -> {
+        this.addWidget(new Button(centerX - 105, toggleBtnY, 100, 20, Component.literal(leftBtnText), b -> {
             BlockIdScreen.isCommandMode = !BlockIdScreen.isCommandMode;
-            this.client.setScreen(new BlockIdScreen());
+            this.minecraft.setScreen(new BlockIdScreen());
         }));
 
         String rightBtnText = isReplaceMode ? "切换到复制模式" : "切换到替换模式";
-        this.addSelectableChild(new ButtonWidget(centerX + 5, toggleBtnY, 100, 20, Text.literal(rightBtnText), b -> {
+        this.addWidget(new Button(centerX + 5, toggleBtnY, 100, 20, Component.literal(rightBtnText), b -> {
             BlockIdScreen.isReplaceMode = !BlockIdScreen.isReplaceMode;
-            this.client.setScreen(new BlockIdScreen());
+            this.minecraft.setScreen(new BlockIdScreen());
         }));
 
         if (!isCommandMode) {
-            this.addSelectableChild(new ButtonWidget(centerX - 105, bottomBtnY, 100, 20, Text.literal("复制ID"), b -> {
+            this.addWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制ID"), b -> {
                 if (isReplaceMode) {
                     if (!selectedSources.isEmpty() && !selectedTargets.isEmpty()) {
                         String source = joinBlocksWithoutWeight(selectedSources);
                         String target = joinBlocksWithProperties(selectedTargets);
                         String finalString = source + " " + target;
-                        this.client.keyboard.setClipboard(finalString);
-                        this.client.player.sendMessage(Text.literal("已复制替换ID: " + finalString), true);
+                        this.minecraft.keyboardHandler.setClipboard(finalString);
+                        this.minecraft.player.displayClientMessage(Component.literal("已复制替换ID: " + finalString), true);
                     } else {
-                        this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
+                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
                     }
                 } else {
                     if (!selectedIds.isEmpty()) {
                         String id = joinBlocksWithProperties(selectedIds);
-                        this.client.keyboard.setClipboard(id);
-                        this.client.player.sendMessage(Text.literal("已复制方块ID: " + id), true);
+                        this.minecraft.keyboardHandler.setClipboard(id);
+                        this.minecraft.player.displayClientMessage(Component.literal("已复制方块ID: " + id), true);
                     } else {
-                        this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
+                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
                     }
                 }
             }));
         } else {
             if (!isReplaceMode) {
-                this.addSelectableChild(new ButtonWidget(centerX - 105, bottomBtnY, 100, 20, Text.literal("复制 (Set)"), b -> {
+                this.addWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制 (Set)"), b -> {
                     if (!selectedIds.isEmpty()) {
                         WorldEditIntegration.copySetCommand(joinBlocksWithProperties(selectedIds));
                     } else {
-                        this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
+                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
                     }
                 }));
             } else {
-                this.addSelectableChild(new ButtonWidget(centerX - 105, bottomBtnY, 100, 20, Text.literal("复制 (Replace)"), b -> {
+                this.addWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制 (Replace)"), b -> {
                     if (!selectedSources.isEmpty() && !selectedTargets.isEmpty()) {
                         WorldEditIntegration.copyReplaceCommand(joinBlocksWithoutWeight(selectedSources), joinBlocksWithProperties(selectedTargets));
                     } else {
-                        this.client.player.sendMessage(Text.translatable("gui.block_id.please_select"), true);
+                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
                     }
                 }));
             }
         }
 
-        this.addSelectableChild(new ButtonWidget(centerX + 5, bottomBtnY, 100, 20, Text.literal("清空"), b -> {
+        this.addWidget(new Button(centerX + 5, bottomBtnY, 100, 20, Component.literal("清空"), b -> {
             selectedIds.clear();
             selectedSources.clear();
             selectedTargets.clear();
@@ -328,7 +328,7 @@ public class BlockIdScreen extends Screen {
         scrollSelTgt = 0;
     }
 
-    private void renderScrollbar(MatrixStack matrices, int x, int y, int height, int scroll, int totalContent) {
+    private void renderScrollbar(PoseStack matrices, int x, int y, int height, int scroll, int totalContent) {
         int contentHeight = totalContent * ITEM_HEIGHT;
         if (contentHeight <= height) return;
 
@@ -347,14 +347,14 @@ public class BlockIdScreen extends Screen {
     }
 
     @Override
-    public void render(MatrixStack matrices, int mouseX, int mouseY, float partialTick) {
+    public void render(PoseStack matrices, int mouseX, int mouseY, float partialTick) {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         this.fillGradient(matrices, 0, 0, this.width, this.height, 0xE0202020, 0xF0101010);
         this.fillGradient(matrices, 0, 0, this.width, 60, 0xFF3a6ea5, 0x00000000);
         RenderSystem.disableBlend();
 
-        this.textRenderer.drawWithShadow(matrices, Text.translatable("gui.block_id.title"), (float)(this.width / 2 - this.textRenderer.getWidth(Text.translatable("gui.block_id.title")) / 2), 15, 0xFFFFFFFF);
+        this.font.draw(matrices, Component.translatable("gui.block_id.title"), (float)(this.width / 2 - this.font.width(Component.translatable("gui.block_id.title")) / 2), 15, 0xFFFFFFFF);
 
         
         int panelBg = 0x90000000;
@@ -373,15 +373,15 @@ public class BlockIdScreen extends Screen {
         if (isReplaceMode) this.targetSearchBar.render(matrices, mouseX, mouseY, partialTick);
 
         
-        if (this.searchBar.getText().isEmpty() && !this.searchBar.isFocused()) {
-            this.textRenderer.draw(matrices, "搜索...", this.searchBar.x + 4, this.searchBar.y + 6, 0xFF666666);
+        if (this.searchBar.getValue().isEmpty() && !this.searchBar.isFocused()) {
+            this.font.draw(matrices, "搜索...", this.searchBar.x + 4, this.searchBar.y + 6, 0xFF666666);
         }
-        if (isReplaceMode && this.targetSearchBar.getText().isEmpty() && !this.targetSearchBar.isFocused()) {
-            this.textRenderer.draw(matrices, "搜索目标...", this.targetSearchBar.x + 4, this.targetSearchBar.y + 6, 0xFF666666);
+        if (isReplaceMode && this.targetSearchBar.getValue().isEmpty() && !this.targetSearchBar.isFocused()) {
+            this.font.draw(matrices, "搜索目标...", this.targetSearchBar.x + 4, this.targetSearchBar.y + 6, 0xFF666666);
         }
 
-        String searchText = searchBar.getText().toLowerCase();
-        String targetText = targetSearchBar.getText().toLowerCase();
+        String searchText = searchBar.getValue().toLowerCase();
+        String targetText = targetSearchBar.getValue().toLowerCase();
 
         if (!searchText.equals(lastSearchText)) {
             cachedFilteredAll = filterBlocks(allBlocks, searchText);
@@ -395,7 +395,7 @@ public class BlockIdScreen extends Screen {
         }
 
         if (isReplaceMode) {
-            this.textRenderer.draw(matrices, "替换源", leftX, listHeaderY, 0xFFAAAAAA);
+            this.font.draw(matrices, "替换源", leftX, listHeaderY, 0xFFAAAAAA);
             scissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 10);
             renderList(matrices, leftX, listStartY - scrollSrc, cachedFilteredAll, selectedSources, 0xCC4CAF50, 0xAA000000, "all");
             RenderSystem.disableScissor();
@@ -414,29 +414,29 @@ public class BlockIdScreen extends Screen {
                 renderScrollbar(matrices, midX + colWidth, listStartY, listEndY - listStartY, scrollTgt, cachedFilteredTarget.size());
             }
 
-            this.textRenderer.draw(matrices, "已选源", rightX, listHeaderY, 0xFFAAAAAA);
+            this.font.draw(matrices, "已选源", rightX, listHeaderY, 0xFFAAAAAA);
             scissor(rightX - 5, listStartY, rightX + colWidth, rightLineY - 5);
             renderList(matrices, rightX, listStartY - scrollSelSrc, selectedSources, null, 0xCC4CAF50, 0xAA000000, "selected");
             RenderSystem.disableScissor();
             this.fill(matrices, rightX - 5, rightLineY, rightX + colWidth, rightLineY + 2, 0xFF555555);
-            this.textRenderer.draw(matrices, "已选目标", rightX, rightLineY + 4, 0xFFAAAAAA);
+            this.font.draw(matrices, "已选目标", rightX, rightLineY + 4, 0xFFAAAAAA);
             scissor(rightX - 5, rightLineY + 10, rightX + colWidth, listEndY + 10);
             renderList(matrices, rightX, rightLineY + 10 - scrollSelTgt, selectedTargets, null, 0xCCFF9800, 0xAA000000, "selected");
             RenderSystem.disableScissor();
         } else {
-            this.textRenderer.draw(matrices, "全部方块", leftX, listHeaderY, 0xFFAAAAAA);
+            this.font.draw(matrices, "全部方块", leftX, listHeaderY, 0xFFAAAAAA);
             scissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 10);
             renderList(matrices, leftX, listStartY - scrollAll, cachedFilteredAll, selectedIds, 0xCC4CAF50, 0xAA000000, "all");
             RenderSystem.disableScissor();
             renderScrollbar(matrices, leftX + colWidth, listStartY, listEndY - listStartY, scrollAll, cachedFilteredAll.size());
 
-            this.textRenderer.draw(matrices, "常用方块", midX, listHeaderY, 0xFFAAAAAA);
+            this.font.draw(matrices, "常用方块", midX, listHeaderY, 0xFFAAAAAA);
             scissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
             renderList(matrices, midX, listStartY - scrollFavorite, favoriteBlocks, selectedIds, 0xCC4CAF50, 0xAA000000, "frequent");
             RenderSystem.disableScissor();
             renderScrollbar(matrices, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, favoriteBlocks.size());
 
-            this.textRenderer.draw(matrices, "已选列表", rightX, listHeaderY, 0xFFAAAAAA);
+            this.font.draw(matrices, "已选列表", rightX, listHeaderY, 0xFFAAAAAA);
             scissor(rightX - 5, listStartY, rightX + colWidth, listEndY + 10);
             renderList(matrices, rightX, listStartY - scrollSelected, selectedIds, null, 0xCCFF9800, 0xAA000000, "selected");
             RenderSystem.disableScissor();
@@ -444,7 +444,7 @@ public class BlockIdScreen extends Screen {
         }
 
         int totalSelected = isReplaceMode ? (selectedSources.size() + selectedTargets.size()) : selectedIds.size();
-        this.textRenderer.drawWithShadow(matrices, Text.translatable("gui.block_id.selected_count", totalSelected), (float)(this.width / 2 - this.textRenderer.getWidth(Text.translatable("gui.block_id.selected_count", totalSelected)) / 2), tipY, 0xFFFFFFFF);
+        this.font.draw(matrices, Component.translatable("gui.block_id.selected_count", totalSelected), (float)(this.width / 2 - this.font.width(Component.translatable("gui.block_id.selected_count", totalSelected)) / 2), tipY, 0xFFFFFFFF);
 
         
         if (weightInputBlockId != null && weightInputField != null) {
@@ -457,7 +457,7 @@ public class BlockIdScreen extends Screen {
         }
     }
 
-    private void renderWeightInput(MatrixStack matrices) {
+    private void renderWeightInput(PoseStack matrices) {
         int itemY = -1;
         if (isReplaceMode) {
             int srcIdx = selectedSources.indexOf(weightInputBlockId);
@@ -479,9 +479,9 @@ public class BlockIdScreen extends Screen {
         weightInputField.render(matrices, 0, 0, 0);
     }
 
-    private void renderPropertyEditor(MatrixStack matrices, int mouseX, int mouseY) {
+    private void renderPropertyEditor(PoseStack matrices, int mouseX, int mouseY) {
         Block block = getBlockFromId(editingBlockId);
-        List<Property<?>> properties = (block != null) ? new ArrayList<>(block.getStateManager().getProperties()) : new ArrayList<>();
+        List<Property<?>> properties = (block != null) ? new ArrayList<>(block.getStateDefinition().getProperties()) : new ArrayList<>();
 
         int headerH = 18, lineH = 13, padding = 10;
         int contentH = Math.min(properties.size() * lineH, 5 * lineH);
@@ -499,24 +499,24 @@ public class BlockIdScreen extends Screen {
         this.fill(matrices, panelX + 1, panelY + 1, panelX + panelW - 1, panelY + headerH, 0xFF1a2540);
         String blockName = getBlockDisplayName(editingBlockId);
         String title = "⚙ " + blockName;
-        if (this.textRenderer.getWidth(title) > panelW - 90) {
-            while (this.textRenderer.getWidth(title + "...") > panelW - 90 && title.length() > 1) title = title.substring(0, title.length() - 1);
+        if (this.font.width(title) > panelW - 90) {
+            while (this.font.width(title + "...") > panelW - 90 && title.length() > 1) title = title.substring(0, title.length() - 1);
             title += "...";
         }
-        this.textRenderer.draw(matrices, title, panelX + 6, panelY + 5, 0xFF88BBFF);
+        this.font.draw(matrices, title, panelX + 6, panelY + 5, 0xFF88BBFF);
 
         int closeX = panelX + panelW - 36;
         int closeY = panelY + 3;
         this.fill(matrices, closeX, closeY, closeX + 30, closeY + 13, 0xFF8B2020);
-        this.textRenderer.drawWithShadow(matrices, "×", (float)(closeX + 15 - this.textRenderer.getWidth("×") / 2), closeY + 3, 0xFFFFFFFF);
+        this.font.draw(matrices, "×", (float)(closeX + 15 - this.font.width("×") / 2), closeY + 3, 0xFFFFFFFF);
 
         int copyX = panelX + panelW - 74;
         int copyY = panelY + 3;
         this.fill(matrices, copyX, copyY, copyX + 34, copyY + 13, 0xFF2a6a3a);
-        this.textRenderer.drawWithShadow(matrices, "复制", (float)(copyX + 17 - this.textRenderer.getWidth("复制") / 2), copyY + 3, 0xFFFFFFFF);
+        this.font.draw(matrices, "复制", (float)(copyX + 17 - this.font.width("复制") / 2), copyY + 3, 0xFFFFFFFF);
 
         if (properties.isEmpty()) {
-            this.textRenderer.drawWithShadow(matrices, "无可用属性", (float)(panelX + panelW / 2 - this.textRenderer.getWidth("无可用属性") / 2), panelY + headerH + 8, 0xFF666666);
+            this.font.draw(matrices, "无可用属性", (float)(panelX + panelW / 2 - this.font.width("无可用属性") / 2), panelY + headerH + 8, 0xFF666666);
             return;
         }
 
@@ -540,14 +540,14 @@ public class BlockIdScreen extends Screen {
             this.fill(matrices, panelX + 4, y, panelX + 6, y + lineH - 1, 0xFF4a8ad5);
 
             String cnName = mapPropName(propName);
-            this.textRenderer.draw(matrices, cnName, panelX + 10, y + 3, 0xFF88BBFF);
+            this.font.draw(matrices, cnName, panelX + 10, y + 3, 0xFF88BBFF);
 
             String displayValue = mapPropValue(currentValue);
             String valueText = displayValue + " " + currentValue;
-            int valueWidth = this.textRenderer.getWidth(valueText);
+            int valueWidth = this.font.width(valueText);
             int valueX = panelX + panelW - valueWidth - 10;
             this.fill(matrices, valueX - 2, y + 1, valueX + valueWidth + 2, y + lineH - 2, 0xFF252545);
-            this.textRenderer.draw(matrices, valueText, valueX, y + 3, 0xFFFFFF88);
+            this.font.draw(matrices, valueText, valueX, y + 3, 0xFFFFFF88);
 
             y += lineH;
         }
@@ -563,7 +563,7 @@ public class BlockIdScreen extends Screen {
         }
     }
 
-    private void renderList(MatrixStack matrices, int x, int y, List<String> filtered, List<String> selectionList, int selectedColor, int normalColor, String listKind) {
+    private void renderList(PoseStack matrices, int x, int y, List<String> filtered, List<String> selectionList, int selectedColor, int normalColor, String listKind) {
         for (String blockId : filtered) {
             boolean isSelected = selectionList != null && selectionList.contains(blockId);
             if (isSelected) {
@@ -577,17 +577,17 @@ public class BlockIdScreen extends Screen {
 
             try {
                 String[] parts = blockId.split(":");
-                Identifier rl = new Identifier(parts[0], parts[1]);
+                ResourceLocation rl = new ResourceLocation(parts[0], parts[1]);
                 ItemStack stack = new ItemStack(Registry.BLOCK.get(rl));
-                this.itemRenderer.renderInGuiWithOverrides(stack, x + 4, y + 2);
+                this.itemRenderer.renderGuiItem(stack, x + 4, y + 2);
 
                 
                 if ("selected".equals(listKind)) {
                     Map<String, String> props = blockProperties.get(blockId);
                     int weight = blockWeights.getOrDefault(blockId, 100);
-                    String displayText = stack.getName().getString();
+                    String displayText = stack.getHoverName().getString();
                     if (props != null && !props.isEmpty()) displayText += " [" + props.size() + "]";
-                    this.textRenderer.draw(matrices, displayText, x + 26, y + 6, 0xFFFFFFFF);
+                    this.font.draw(matrices, displayText, x + 26, y + 6, 0xFFFFFFFF);
 
                     
                     int trackX = x + colWidth - 78;
@@ -599,19 +599,19 @@ public class BlockIdScreen extends Screen {
                     int thumbX = trackX + fillW - 2;
                     this.fill(matrices, thumbX, trackY - 2, thumbX + 4, trackY + 5, 0xFF88BBFF);
                     String weightText = weight + "%";
-                    this.textRenderer.draw(matrices, weightText, trackX + trackW + 6, y + 6, 0xFFFFFF88);
-                    this.textRenderer.draw(matrices, "⚙", x + colWidth - 12, y + 6, 0xFF66B0FF);
+                    this.font.draw(matrices, weightText, trackX + trackW + 6, y + 6, 0xFFFFFF88);
+                    this.font.draw(matrices, "⚙", x + colWidth - 12, y + 6, 0xFF66B0FF);
                 } else {
-                    this.textRenderer.draw(matrices, stack.getName().getString(), x + 26, y + 6, 0xFFFFFFFF);
+                    this.font.draw(matrices, stack.getHoverName().getString(), x + 26, y + 6, 0xFFFFFFFF);
                     if ("all".equals(listKind)) {
-                        if (isInFavorite(blockId)) this.textRenderer.draw(matrices, "✔", x + colWidth - 16, y + 6, 0xFF00FF00);
-                        else this.textRenderer.draw(matrices, "➕", x + colWidth - 16, y + 6, 0xFFAAAAAA);
+                        if (isInFavorite(blockId)) this.font.draw(matrices, "✔", x + colWidth - 16, y + 6, 0xFF00FF00);
+                        else this.font.draw(matrices, "➕", x + colWidth - 16, y + 6, 0xFFAAAAAA);
                     } else if ("frequent".equals(listKind)) {
-                        this.textRenderer.draw(matrices, "➖", x + colWidth - 16, y + 6, 0xFFFF6666);
+                        this.font.draw(matrices, "➖", x + colWidth - 16, y + 6, 0xFFFF6666);
                     }
                 }
             } catch (Exception e) {
-                this.textRenderer.draw(matrices, blockId, x + 26, y + 6, 0xFFFFFFFF);
+                this.font.draw(matrices, blockId, x + 26, y + 6, 0xFFFFFFFF);
             }
             y += ITEM_HEIGHT;
             if (y > listEndY + 20) break;
@@ -707,16 +707,16 @@ public class BlockIdScreen extends Screen {
     private String getBlockDisplayName(String blockId) {
         try {
             String[] parts = blockId.split(":");
-            Identifier rl = new Identifier(parts[0], parts[1]);
+            ResourceLocation rl = new ResourceLocation(parts[0], parts[1]);
             ItemStack stack = new ItemStack(Registry.BLOCK.get(rl));
-            return stack.getName().getString();
+            return stack.getHoverName().getString();
         } catch (Exception e) { return blockId; }
     }
 
     private Block getBlockFromId(String blockId) {
         try {
             String[] parts = blockId.split(":");
-            Identifier rl = new Identifier(parts[0], parts[1]);
+            ResourceLocation rl = new ResourceLocation(parts[0], parts[1]);
             return Registry.BLOCK.get(rl);
         } catch (Exception e) { return null; }
     }
@@ -724,11 +724,11 @@ public class BlockIdScreen extends Screen {
     @SuppressWarnings("unchecked")
     private String getDefaultPropertyValue(Block block, Property<?> prop) {
         try {
-            BlockState defaultState = block.getDefaultState();
-            Object value = defaultState.get(prop);
+            BlockState defaultState = block.defaultBlockState();
+            Object value = defaultState.getValue(prop);
             return value.toString();
         } catch (Exception e) {
-            return prop.getValues().iterator().next().toString();
+            return prop.getPossibleValues().iterator().next().toString();
         }
     }
 
@@ -737,13 +737,13 @@ public class BlockIdScreen extends Screen {
         Block block = getBlockFromId(blockId);
         if (block == null) return;
         Property targetProp = null;
-        for (Property<?> p : block.getStateManager().getProperties()) {
+        for (Property<?> p : block.getStateDefinition().getProperties()) {
             if (p.getName().equals(propName)) { targetProp = p; break; }
         }
         if (targetProp == null) return;
 
         List<String> values = new ArrayList<>();
-        for (Object v : targetProp.getValues()) values.add(v.toString());
+        for (Object v : targetProp.getPossibleValues()) values.add(v.toString());
         if (values.isEmpty()) return;
 
         Map<String, String> props = blockProperties.computeIfAbsent(blockId, k -> new HashMap<>());
@@ -874,8 +874,8 @@ public class BlockIdScreen extends Screen {
                 int copyY = panelY + 3;
                 if (mouseX >= copyX && mouseX <= copyX + 34 && mouseY >= copyY && mouseY <= copyY + 13) {
                     String formatted = formatBlockWithProperties(editingBlockId);
-                    this.client.keyboard.setClipboard(formatted);
-                    this.client.player.sendMessage(Text.literal("已复制: " + formatted), true);
+                    this.minecraft.keyboardHandler.setClipboard(formatted);
+                    this.minecraft.player.displayClientMessage(Component.literal("已复制: " + formatted), true);
                     return true;
                 }
                 int contentY = panelY + headerH + 3;
@@ -883,7 +883,7 @@ public class BlockIdScreen extends Screen {
                 if (mouseY >= contentY && mouseY <= contentY + contentH) {
                     Block block = getBlockFromId(editingBlockId);
                     if (block != null) {
-                        List<Property<?>> properties = new ArrayList<>(block.getStateManager().getProperties());
+                        List<Property<?>> properties = new ArrayList<>(block.getStateDefinition().getProperties());
                         int idx = (int)((mouseY - contentY + propScroll) / lineH);
                         if (idx >= 0 && idx < properties.size()) {
                             cyclePropertyValue(editingBlockId, properties.get(idx).getName());
@@ -1016,18 +1016,18 @@ public class BlockIdScreen extends Screen {
         weightInputBlockId = blockId;
         int weight = blockWeights.getOrDefault(blockId, 100);
         if (weightInputField == null) {
-            weightInputField = new TextFieldWidget(this.textRenderer, 0, 0, 50, 16, Text.literal(""));
+            weightInputField = new EditBox(this.font, 0, 0, 50, 16, Component.literal(""));
             weightInputField.setMaxLength(3);
-            weightInputField.setTextPredicate(s -> s.isEmpty() || s.matches("\\d{1,3}"));
+            weightInputField.setFilter(s -> s.isEmpty() || s.matches("\\d{1,3}"));
         }
-        weightInputField.setText(String.valueOf(weight));
+        weightInputField.setValue(String.valueOf(weight));
         
         this.setFocused(weightInputField);
     }
 
     private int[] getPropertyPanelBounds() {
         Block block = getBlockFromId(editingBlockId);
-        int propCount = (block != null) ? block.getStateManager().getProperties().size() : 0;
+        int propCount = (block != null) ? block.getStateDefinition().getProperties().size() : 0;
         int headerH = 18, lineH = 13, padding = 10;
         int contentH = Math.min(propCount * lineH, 5 * lineH);
         int panelH = headerH + contentH + padding;
@@ -1040,7 +1040,7 @@ public class BlockIdScreen extends Screen {
     private void confirmWeightInput() {
         if (weightInputBlockId == null || weightInputField == null) return;
         try {
-            int val = Integer.parseInt(weightInputField.getText());
+            int val = Integer.parseInt(weightInputField.getValue());
             val = Math.max(1, Math.min(100, val));
             if (isReplaceMode) {
                 if (selectedSources.contains(weightInputBlockId)) setWeight(selectedSources, weightInputBlockId, val);
@@ -1141,7 +1141,7 @@ public class BlockIdScreen extends Screen {
             FavoritesManager.addBlock(blockId);
         }
         favoriteBlocks = FavoritesManager.getCurrentBlocks();
-        cachedFilteredFavorite = filterBlocks(favoriteBlocks, searchBar.getText());
+        cachedFilteredFavorite = filterBlocks(favoriteBlocks, searchBar.getValue());
     }
     private void toggleSelection(List<String> list, String blockId) {
         if (list.contains(blockId)) {
@@ -1176,7 +1176,7 @@ public class BlockIdScreen extends Screen {
     }
 
     @Override
-    public boolean shouldPause() {
+    public boolean isPauseScreen() {
         return false;
     }
 

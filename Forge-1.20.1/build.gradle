@@ -4,7 +4,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = '2.1.2-Release'
+version = '2.1.2.1-Beta'
 group = 'com.moybj'
 archivesBaseName = 'Block_ID-forge' // 修改为区分版本
 

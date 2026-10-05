@@ -1,7 +1,7 @@
 package com.moybj.blockid;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.fabricmc.loader.api.FabricLoader;
 
 public class WorldEditIntegration {
@@ -20,28 +20,28 @@ public class WorldEditIntegration {
     }
 
     public static void copySetCommand(String blockId) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         String command = "//set " + blockId;
-        mc.keyboard.setClipboard(command);
+        mc.keyboardHandler.setClipboard(command);
         if (isWorldEditLoaded()) {
             runCommand(mc, command);
-            mc.player.sendMessage(Text.literal("已执行指令: " + command), true);
+            mc.player.displayClientMessage(Component.literal("已执行指令: " + command), true);
         } else {
-            mc.player.sendMessage(Text.literal(buildTip(command)), true);
+            mc.player.displayClientMessage(Component.literal(buildTip(command)), true);
         }
     }
 
     public static void copyReplaceCommand(String mask, String blockId) {
-        MinecraftClient mc = MinecraftClient.getInstance();
+        Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         String command = "//replace " + mask + " " + blockId;
-        mc.keyboard.setClipboard(command);
+        mc.keyboardHandler.setClipboard(command);
         if (isWorldEditLoaded()) {
             runCommand(mc, command);
-            mc.player.sendMessage(Text.literal("已执行指令: " + command), true);
+            mc.player.displayClientMessage(Component.literal("已执行指令: " + command), true);
         } else {
-            mc.player.sendMessage(Text.literal(buildTip(command)), true);
+            mc.player.displayClientMessage(Component.literal(buildTip(command)), true);
         }
     }
 
@@ -55,10 +55,10 @@ public class WorldEditIntegration {
      * 检测到 WorldEdit 时直接发送指令，省去手动按 T 再 Ctrl+V 粘贴的步骤。
      * 指令始终会先写入剪贴板，即使发送失败玩家仍可手动粘贴执行。
      */
-    private static void runCommand(MinecraftClient mc, String command) {
+    private static void runCommand(Minecraft mc, String command) {
         try {
-            if (mc.getNetworkHandler() != null) {
-                mc.getNetworkHandler().sendCommand(command.startsWith("/") ? command.substring(1) : command);
+            if (mc.getConnection() != null) {
+                mc.getConnection().sendCommand(command.startsWith("/") ? command.substring(1) : command);
             }
         } catch (Throwable ignored) {
             // 发送失败不影响使用：指令已在剪贴板中

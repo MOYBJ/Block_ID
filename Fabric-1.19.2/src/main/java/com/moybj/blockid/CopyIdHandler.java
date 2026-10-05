@@ -1,36 +1,36 @@
 package com.moybj.blockid;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.registry.Registry;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.Registry;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.resources.ResourceLocation;
 
 public class CopyIdHandler {
     public static void copyBlockId() {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null) return;
 
-        ItemStack stack = mc.player.getMainHandStack();
+        ItemStack stack = mc.player.getMainHandItem();
         if (stack != null && stack.getItem() instanceof BlockItem blockItem) {
             
-            Identifier id = Registry.BLOCK.getId(blockItem.getBlock());
+            ResourceLocation id = Registry.BLOCK.getKey(blockItem.getBlock());
             String blockId = id.toString();
 
             
-            mc.keyboard.setClipboard(blockId);
+            mc.keyboardHandler.setClipboard(blockId);
 
             
-            Text message = Text.literal("【Block_ID】")
-                    .formatted(Formatting.DARK_GREEN)
-                    .append(Text.literal("已复制手持方块ID: " + blockId)
-                            .formatted(Formatting.DARK_GREEN));
-            mc.player.sendMessage(message, true);
+            Component message = Component.literal("【Block_ID】")
+                    .withStyle(ChatFormatting.DARK_GREEN)
+                    .append(Component.literal("已复制手持方块ID: " + blockId)
+                            .withStyle(ChatFormatting.DARK_GREEN));
+            mc.player.displayClientMessage(message, true);
         } else {
-            mc.player.sendMessage(
-                    Text.literal("【Block_ID】手持物不是方块！").formatted(Formatting.DARK_RED),
+            mc.player.displayClientMessage(
+                    Component.literal("【Block_ID】手持物不是方块！").withStyle(ChatFormatting.DARK_RED),
                     true
             );
         }
