@@ -41,4 +41,5 @@ public class WorldEditIntegration {
                 ? "已复制指令: " + command
                 : "已复制指令: " + command + "（未检测到 WorldEdit，请在聊天栏粘贴后手动执行）";
     }
+
 }

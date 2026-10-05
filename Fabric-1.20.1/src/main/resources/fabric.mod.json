@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "block_id",
-	"version": "2.1.1-Beta",
+	"version": "2.1.2-Release",
 	"name": "Block_ID",
 	"description": "A client mod for copying block IDs and generating WorldEdit commands. ⚠ 本模组版权所有 (c) 2026 MOYBJ。未经作者书面允许，禁止二次修改后公开发布。",
 	"authors": [

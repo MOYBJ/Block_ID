@@ -14,7 +14,7 @@ Minecraft 1.19.2 方块ID管理与 WorldEdit 指令生成客户端模组（Forge
 
 ## 版本
 
-当前版本：**2.1.1-Beta**
+当前版本：**2.1.2-Release**
 
 支持游戏版本：Minecraft 1.19.2
 支持加载器：Forge 43+

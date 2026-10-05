@@ -21,10 +21,11 @@ public class BlockID {
             GLFW.GLFW_KEY_G,
             "key.categories.block_id"
     );
+    // 复制键默认 H：C 为整合包高频冲突键，改用 H 降低冲突概率
     public static final KeyMapping COPY_ID_KEY = new KeyMapping(
             "key.block_id.copy_id",
             InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_C,
+            GLFW.GLFW_KEY_H,
             "key.categories.block_id"
     );
 

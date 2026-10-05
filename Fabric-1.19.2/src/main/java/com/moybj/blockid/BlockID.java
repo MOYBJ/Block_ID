@@ -18,11 +18,11 @@ public class BlockID implements ClientModInitializer {
             "key.categories.block_id"
     ));
 
-    
+    // 复制键默认 H：C 为整合包高频冲突键，改用 H 降低冲突概率
     public static final KeyBinding COPY_ID_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding(
             "key.block_id.copy_id",
             InputUtil.Type.KEYSYM,
-            GLFW.GLFW_KEY_C,
+            GLFW.GLFW_KEY_H,
             "key.categories.block_id"
     ));
 
@@ -30,6 +30,8 @@ public class BlockID implements ClientModInitializer {
     public void onInitializeClient() {
         
         ConfigManager.init();
+        FavoritesManager.init();
+        HistoryManager.init();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             

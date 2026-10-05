@@ -4,7 +4,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = '2.1.1-Beta'
+version = '2.1.2-Release'
 group = 'com.moybj'
 archivesBaseName = 'Block_ID-forge'
 
