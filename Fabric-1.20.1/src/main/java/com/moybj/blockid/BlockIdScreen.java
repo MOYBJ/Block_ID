@@ -681,7 +681,7 @@ public class BlockIdScreen extends Screen {
                 
                 if ("selected".equals(listKind)) {
                     Map<String, String> props = blockProperties.get(blockId);
-                    int weight = blockWeights.getOrDefault(blockId, 100);
+                    int weight = effectivePercent(selectionList, blockId);
                     String displayText = stack.getHoverName().getString();
                     if (props != null && !props.isEmpty()) displayText += " [" + props.size() + "]";
                     graphics.drawString(this.font, displayText, x + 26, y + 6, 0xFFFFFFFF, false);
@@ -852,12 +852,15 @@ public class BlockIdScreen extends Screen {
     }
 
     private String formatBlockWithProperties(String blockId) {
+        return formatBlockWithProperties(blockId, false);
+    }
+
+    private String formatBlockWithProperties(String blockId, boolean includeWeight) {
         Map<String, String> props = blockProperties.get(blockId);
         StringBuilder sb = new StringBuilder();
         
-        int weight = blockWeights.getOrDefault(blockId, 100);
-        if (weight < 100) {
-            sb.append(weight).append("%");
+        if (includeWeight) {
+            sb.append(blockWeights.getOrDefault(blockId, 100)).append("%");
         }
         sb.append(blockId);
         if (props != null && !props.isEmpty()) {
@@ -874,8 +877,12 @@ public class BlockIdScreen extends Screen {
     }
 
     private String joinBlocksWithProperties(List<String> blockIds) {
+        boolean anyCustom = false;
+        for (String id : blockIds) {
+            if (blockWeights.getOrDefault(id, 100) != 100) { anyCustom = true; break; }
+        }
         List<String> formatted = new ArrayList<>();
-        for (String id : blockIds) formatted.add(formatBlockWithProperties(id));
+        for (String id : blockIds) formatted.add(formatBlockWithProperties(id, anyCustom));
         return String.join(",", formatted);
     }
 
@@ -900,57 +907,32 @@ public class BlockIdScreen extends Screen {
         return String.join(",", formatted);
     }
 
-    private void normalizeWeights(List<String> blockIds) {
-        if (blockIds.isEmpty()) return;
-        if (blockIds.size() == 1) { blockWeights.put(blockIds.get(0), 100); return; }
-        int total = 0;
-        for (String id : blockIds) total += blockWeights.getOrDefault(id, 100);
-        if (total <= 0) {
-            int avg = 100 / blockIds.size();
-            int rem = 100 - avg * blockIds.size();
-            for (int i = 0; i < blockIds.size(); i++) blockWeights.put(blockIds.get(i), avg + (i < rem ? 1 : 0));
-            return;
-        }
-        int[] newWeights = new int[blockIds.size()];
-        int allocated = 0;
-        for (int i = 0; i < blockIds.size(); i++) {
-            int w = blockWeights.getOrDefault(blockIds.get(i), 100);
-            newWeights[i] = (int) Math.round((double) w / total * 100);
-            allocated += newWeights[i];
-        }
-        int diff = 100 - allocated;
-        if (diff != 0) {
-            int maxIdx = 0;
-            for (int i = 1; i < newWeights.length; i++) if (newWeights[i] > newWeights[maxIdx]) maxIdx = i;
-            newWeights[maxIdx] += diff;
-            newWeights[maxIdx] = Math.max(1, newWeights[maxIdx]);
-        }
-        for (int i = 0; i < blockIds.size(); i++) blockWeights.put(blockIds.get(i), Math.max(1, newWeights[i]));
+    private int totalWeight(List<String> group) {
+        if (group == null || group.isEmpty()) return 0;
+        int t = 0;
+        for (String id : group) t += blockWeights.getOrDefault(id, 100);
+        return t;
+    }
+
+    private int effectivePercent(List<String> group, String blockId) {
+        int total = totalWeight(group);
+        if (total <= 0) return 100;
+        return (int) Math.round((double) blockWeights.getOrDefault(blockId, 100) / total * 100);
+    }
+
+    private int rawWeightForPercent(List<String> group, String targetId, int pct) {
+        pct = Math.max(1, Math.min(99, pct));
+        int total = totalWeight(group);
+        int others = total - blockWeights.getOrDefault(targetId, 100);
+        if (others <= 0) others = 1;
+        int raw = (int) Math.round((double) pct / (100.0 - pct) * others);
+        return Math.max(1, Math.min(9999, raw));
     }
 
     private void setWeight(List<String> blockIds, String targetId, int newWeight) {
         if (blockIds.size() == 1) { blockWeights.put(targetId, 100); return; }
-        newWeight = Math.max(1, Math.min(99, newWeight));
+        newWeight = Math.max(1, Math.min(9999, newWeight));
         blockWeights.put(targetId, newWeight);
-        int remaining = 100 - newWeight;
-        List<String> others = new ArrayList<>();
-        for (String id : blockIds) if (!id.equals(targetId)) others.add(id);
-        int otherTotal = 0;
-        for (String id : others) otherTotal += blockWeights.getOrDefault(id, 100);
-        if (otherTotal <= 0) {
-            int avg = remaining / others.size();
-            int rem = remaining - avg * others.size();
-            for (int i = 0; i < others.size(); i++) blockWeights.put(others.get(i), avg + (i < rem ? 1 : 0));
-        } else {
-            int allocated = 0;
-            for (int i = 0; i < others.size(); i++) {
-                int w = blockWeights.getOrDefault(others.get(i), 100);
-                int nw = (i == others.size() - 1) ? (remaining - allocated) : (int) Math.round((double) w / otherTotal * remaining);
-                nw = Math.max(1, nw);
-                blockWeights.put(others.get(i), nw);
-                allocated += nw;
-            }
-        }
     }
 
     @Override
@@ -1154,10 +1136,13 @@ public class BlockIdScreen extends Screen {
                         int relX = (int) (mouseX - rightX);
                         if (relX >= colWidth - 12) { editingBlockId = blockId; propScroll = 0; }
                         else if (relX >= colWidth - 78 && relX < colWidth - 52) {
-                            int trackX = colWidth - 78;
-                            int pct = (int)((float)(relX - trackX) / 26 * 100);
                             if (hasControlDown()) openWeightInput(blockId);
-                            else { draggingWeightBlockId = blockId; setWeight(selectedTargets, blockId, pct); }
+                            else {
+                                int trackX = colWidth - 78;
+                                int pct = (int)((float)(relX - trackX) / 26 * 100);
+                                draggingWeightBlockId = blockId;
+                                setWeight(selectedTargets, blockId, rawWeightForPercent(selectedTargets, blockId, pct));
+                            }
                         } else if (relX >= colWidth - 52 && relX < colWidth - 24 && hasControlDown()) {
                             openWeightInput(blockId);
                         }
@@ -1173,10 +1158,13 @@ public class BlockIdScreen extends Screen {
                         int relX = (int) (mouseX - rightX);
                         if (relX >= colWidth - 12) { editingBlockId = blockId; propScroll = 0; }
                         else if (relX >= colWidth - 78 && relX < colWidth - 52) {
-                            int trackX = colWidth - 78;
-                            int pct = (int)((float)(relX - trackX) / 26 * 100);
                             if (hasControlDown()) openWeightInput(blockId);
-                            else { draggingWeightBlockId = blockId; setWeight(selectedIds, blockId, pct); }
+                            else {
+                                int trackX = colWidth - 78;
+                                int pct = (int)((float)(relX - trackX) / 26 * 100);
+                                draggingWeightBlockId = blockId;
+                                setWeight(selectedIds, blockId, rawWeightForPercent(selectedIds, blockId, pct));
+                            }
                         } else if (relX >= colWidth - 52 && relX < colWidth - 24 && hasControlDown()) {
                             openWeightInput(blockId);
                         }
@@ -1195,8 +1183,8 @@ public class BlockIdScreen extends Screen {
         int weight = blockWeights.getOrDefault(blockId, 100);
         if (weightInputField == null) {
             weightInputField = new EditBox(this.font, 0, 0, 50, 16, Component.literal(""));
-            weightInputField.setMaxLength(3);
-            weightInputField.setFilter(s -> s.isEmpty() || s.matches("\\d{1,3}"));
+            weightInputField.setMaxLength(4);
+            weightInputField.setFilter(s -> s.isEmpty() || s.matches("\\d{1,4}"));
         }
         weightInputField.setValue(String.valueOf(weight));
         weightInputField.setFocused(true);
@@ -1219,7 +1207,7 @@ public class BlockIdScreen extends Screen {
         if (weightInputBlockId == null || weightInputField == null) return;
         try {
             int val = Integer.parseInt(weightInputField.getValue());
-            val = Math.max(1, Math.min(100, val));
+            val = Math.max(1, Math.min(9999, val));
             if (isReplaceMode) {
                 if (selectedSources.contains(weightInputBlockId)) setWeight(selectedSources, weightInputBlockId, val);
                 else if (selectedTargets.contains(weightInputBlockId)) setWeight(selectedTargets, weightInputBlockId, val);
@@ -1237,12 +1225,12 @@ public class BlockIdScreen extends Screen {
             double trackStart = rightX + colWidth - 78;
             double trackEnd = rightX + colWidth - 52;
             double pct = (mouseX - trackStart) / (trackEnd - trackStart) * 100;
-            int val = (int) Math.max(1, Math.min(100, Math.round(pct)));
+            int val = (int) Math.max(1, Math.min(99, Math.round(pct)));
             if (isReplaceMode) {
-                if (selectedSources.contains(draggingWeightBlockId)) setWeight(selectedSources, draggingWeightBlockId, val);
-                else if (selectedTargets.contains(draggingWeightBlockId)) setWeight(selectedTargets, draggingWeightBlockId, val);
+                if (selectedSources.contains(draggingWeightBlockId)) setWeight(selectedSources, draggingWeightBlockId, rawWeightForPercent(selectedSources, draggingWeightBlockId, val));
+                else if (selectedTargets.contains(draggingWeightBlockId)) setWeight(selectedTargets, draggingWeightBlockId, rawWeightForPercent(selectedTargets, draggingWeightBlockId, val));
             } else {
-                setWeight(selectedIds, draggingWeightBlockId, val);
+                setWeight(selectedIds, draggingWeightBlockId, rawWeightForPercent(selectedIds, draggingWeightBlockId, val));
             }
             return true;
         }
@@ -1332,30 +1320,9 @@ public class BlockIdScreen extends Screen {
             list.remove(blockId);
             blockProperties.remove(blockId);
             blockWeights.remove(blockId);
-            normalizeWeights(list);
         } else {
             list.add(blockId);
-            if (list.size() == 1) {
-                blockWeights.put(blockId, 100);
-            } else {
-                int newWeight = 100 / list.size();
-                blockWeights.put(blockId, newWeight);
-                int remaining = 100 - newWeight;
-                List<String> others = new ArrayList<>();
-                for (String id : list) if (!id.equals(blockId)) others.add(id);
-                int otherTotal = 0;
-                for (String id : others) otherTotal += blockWeights.getOrDefault(id, 100);
-                if (otherTotal > 0) {
-                    int allocated = 0;
-                    for (int i = 0; i < others.size(); i++) {
-                        int w = blockWeights.getOrDefault(others.get(i), 100);
-                        int nw = (i == others.size() - 1) ? (remaining - allocated) : (int) Math.round((double) w / otherTotal * remaining);
-                        nw = Math.max(1, nw);
-                        blockWeights.put(others.get(i), nw);
-                        allocated += nw;
-                    }
-                }
-            }
+            blockWeights.put(blockId, 100);
         }
     }
 
