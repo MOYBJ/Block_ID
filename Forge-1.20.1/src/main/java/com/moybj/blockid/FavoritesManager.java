@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FavoritesManager {
+    /** 「默认收藏」。用转义写法避免源码/编译编码不一致时被写坏。 */
+    public static final String DEFAULT_GROUP_NAME = "\u9ED8\u8BA4\u6536\u85CF";
+
     public static class FavoriteGroup {
         public String name;
         public List<String> blockIds = new ArrayList<>();
@@ -21,7 +24,7 @@ public class FavoritesManager {
     public static void init() {
         groups = ConfigManager.getFavoriteGroups();
         if (groups.isEmpty()) {
-            groups.add(new FavoriteGroup("默认收藏"));
+            groups.add(new FavoriteGroup(DEFAULT_GROUP_NAME));
             ConfigManager.setFavoriteGroups(groups);
         }
     }

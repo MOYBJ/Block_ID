@@ -4,7 +4,7 @@ plugins {
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
 
-version = '2.1.2.3-Beta'
+version = '2.1.2.5-Beta'
 group = 'com.moybj'
 archivesBaseName = 'Block_ID-forge' // 修改为区分版本
 
@@ -91,4 +91,10 @@ tasks.named('jar', Jar).configure {
 // 彻底禁用 jarJar 任务，防止生成带有 -all 后缀的额外文件
 tasks.named('jarJar').configure {
     enabled = false
+}
+
+
+// 源码里有大量中文字面量，显式声明 UTF-8，避免在 GBK 默认编码的机器上编译出乱码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }

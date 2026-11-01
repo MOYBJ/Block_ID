@@ -56,3 +56,9 @@ jar {
 		rename { "${it}_${project.base.archivesName.get()}"}
 	}
 }
+
+
+// 源码里有大量中文字面量，显式声明 UTF-8，避免在 GBK 默认编码的机器上编译出乱码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

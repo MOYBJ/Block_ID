@@ -46,6 +46,23 @@ public class WorldEditIntegration {
         }
     }
 
+
+    /**
+     * 直接执行/复制一条完整指令（已含 //set 或 //replace）。
+     * 预览框允许玩家自己改指令，所以这里以传入的整条文本为准。
+     */
+    public static void runFullCommand(String command) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        if (isWorldEditLoaded()) {
+            runCommand(mc, command);
+            mc.player.displayClientMessage(Component.literal("已执行指令: " + command), true);
+        } else {
+            mc.player.displayClientMessage(
+                    Component.literal("已复制指令: " + command + "（未检测到 WorldEdit，请在聊天栏粘贴后手动执行）"), true);
+        }
+    }
+
     private static String buildTip(String command) {
         return isWorldEditLoaded()
                 ? "已复制指令: " + command

@@ -52,8 +52,11 @@ public class BlockIdScreen extends Screen {
     
     private EditBox weightInputField = null;
     private String weightInputBlockId = null;
-    
-    private String draggingWeightBlockId = null;
+    /** 这次比例编辑属于哪个列表（替换模式下源/目标可能是同一个方块，不能只按 ID 猜）。 */
+    private List<String> weightInputGroup = null;
+    /** 预览框当前内容的校验问题；null 表示格式正常。 */
+    private String previewError = null;
+    private EditBox previewField = null;
 
     private final Map<String, List<String>> fullPinyinCache = new HashMap<>();
     private final Map<String, List<String>> initialPinyinCache = new HashMap<>();
@@ -203,7 +206,7 @@ public class BlockIdScreen extends Screen {
         inputY = 38;
         toggleBtnY = 68;
         listStartY = 118;
-        listEndY = this.height - 105;
+        listEndY = this.height - 136;
         bottomBtnY = this.height - 65;
         tipY = this.height - 28;
         rightLineY = listStartY + (listEndY - listStartY) / 2;
@@ -249,54 +252,68 @@ public class BlockIdScreen extends Screen {
 
         if (!isCommandMode) {
             this.addRenderableWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制ID"), b -> {
-                if (isReplaceMode) {
-                    if (!selectedSources.isEmpty() && !selectedTargets.isEmpty()) {
-                        String source = joinBlocksWithoutWeight(selectedSources);
-                        String target = joinBlocksWithProperties(selectedTargets);
-                        String finalString = source + " " + target;
-                        this.minecraft.keyboardHandler.setClipboard(finalString);
-                        this.minecraft.player.displayClientMessage(Component.literal("已复制替换ID: " + finalString), true);
-                    } else {
+                    boolean empty = isReplaceMode
+                            ? (selectedSources.isEmpty() || selectedTargets.isEmpty())
+                            : selectedIds.isEmpty();
+                    if (empty) {
                         this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
+                        return;
                     }
-                } else {
-                    if (!selectedIds.isEmpty()) {
-                        String id = joinBlocksWithProperties(selectedIds);
-                        this.minecraft.keyboardHandler.setClipboard(id);
-                        this.minecraft.player.displayClientMessage(Component.literal("已复制方块ID: " + id), true);
-                    } else {
-                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
-                    }
-                }
+                    String out = currentOutput();
+                    if (out == null) return;
+                    this.minecraft.keyboardHandler.setClipboard(out);
+                    this.minecraft.player.displayClientMessage(Component.literal("已复制: " + out), true);
+                    addToHistory(out, isReplaceMode ? "replace" : "id");
             }));
         } else {
             if (!isReplaceMode) {
                 this.addRenderableWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制 (Set)"), b -> {
-                    if (!selectedIds.isEmpty()) {
-                        String setCmd = joinBlocksWithProperties(selectedIds); WorldEditIntegration.copySetCommand(setCmd); addToHistory(setCmd, "set");
-                    } else {
-                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
-                    }
+                        if (selectedIds.isEmpty()) {
+                            this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
+                            return;
+                        }
+                        String out = currentOutput();
+                        if (out == null) return;
+                        this.minecraft.keyboardHandler.setClipboard(out);
+                        WorldEditIntegration.runFullCommand(out);
+                        addToHistory(out, "set");
                 }));
             } else {
                 this.addRenderableWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制 (Replace)"), b -> {
-                    if (!selectedSources.isEmpty() && !selectedTargets.isEmpty()) {
-                        String repSrc = joinBlocksWithoutWeight(selectedSources); String repTgt = joinBlocksWithProperties(selectedTargets); WorldEditIntegration.copyReplaceCommand(repSrc, repTgt); addToHistory(repSrc + " " + repTgt, "replace");
-                    } else {
-                        this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
-                    }
+                        if (selectedSources.isEmpty() || selectedTargets.isEmpty()) {
+                            this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
+                            return;
+                        }
+                        String out = currentOutput();
+                        if (out == null) return;
+                        this.minecraft.keyboardHandler.setClipboard(out);
+                        WorldEditIntegration.runFullCommand(out);
+                        addToHistory(out, "replace");
                 }));
             }
         }
 
         this.addRenderableWidget(new Button(centerX + 5, bottomBtnY, 100, 20, Component.literal("清空"), b -> {
-            selectedIds.clear();
-            selectedSources.clear();
-            selectedTargets.clear();
-            blockProperties.clear();
-            blockWeights.clear();
-            editingBlockId = null;
+                selectedIds.clear();
+                selectedSources.clear();
+                selectedTargets.clear();
+                blockProperties.clear();
+                blockWeights.clear();
+                editingBlockId = null;
+                refreshPreview();
         }));
+
+        initPreviewField();
+    }
+
+    /** 底部预览框：显示当前会输出的指令/ID，用户可以直接在这里改。 */
+    private void initPreviewField() {
+        this.previewField = new EditBox(this.font, margin, this.height - 102, this.width - margin * 2, 16,
+                Component.literal(""));
+        this.previewField.setMaxLength(2000);
+        this.previewField.setResponder(t -> validatePreview());
+        this.addRenderableWidget(this.previewField);
+        refreshPreview();
     }
 
     @Override
@@ -410,19 +427,19 @@ public class BlockIdScreen extends Screen {
 
         if (isReplaceMode) {
             this.font.draw(graphics, "替换源", leftX, listHeaderY, 0xFFAAAAAA);
-            enableScissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 10);
+            enableScissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 2);
             renderList(graphics, leftX, listStartY - scrollSrc, cachedFilteredAll, selectedSources, 0xCC4CAF50, 0xAA000000, "all");
             disableScissor();
             renderScrollbar(graphics, leftX + colWidth, listStartY, listEndY - listStartY, scrollSrc, cachedFilteredAll.size());
 
             
             if (targetTabMode) {
-                enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
+                enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 2);
                 renderList(graphics, midX, listStartY - scrollFavorite, favoriteBlocks, selectedTargets, 0xCCFF9800, 0xAA000000, "frequent");
                 disableScissor();
                 renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, favoriteBlocks.size());
             } else {
-                enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
+                enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 2);
                 renderList(graphics, midX, listStartY - scrollTgt, cachedFilteredTarget, selectedTargets, 0xCCFF9800, 0xAA000000, "all");
                 disableScissor();
                 renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollTgt, cachedFilteredTarget.size());
@@ -434,36 +451,42 @@ public class BlockIdScreen extends Screen {
             disableScissor();
             fill(graphics, rightX - 5, rightLineY, rightX + colWidth, rightLineY + 2, 0xFF555555);
             this.font.draw(graphics, "已选目标", rightX, rightLineY + 4, 0xFFAAAAAA);
-            enableScissor(rightX - 5, rightLineY + 10, rightX + colWidth, listEndY + 10);
+            enableScissor(rightX - 5, rightLineY + 10, rightX + colWidth, listEndY + 2);
             renderList(graphics, rightX, rightLineY + 10 - scrollSelTgt, selectedTargets, null, 0xCCFF9800, 0xAA000000, "selected");
             disableScissor();
         } else {
             this.font.draw(graphics, "全部方块 (第" + (currentPage + 1) + "/" + getTotalPages() + "页)", leftX, listHeaderY, 0xFFAAAAAA);
             List<String> pageBlocks = getCurrentPageBlocks();
-            enableScissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 10);
+            enableScissor(leftX - 5, listStartY, leftX + colWidth, listEndY + 2);
             renderList(graphics, leftX, listStartY - scrollAll, pageBlocks, selectedIds, 0xCC4CAF50, 0xAA000000, "all");
             disableScissor();
             renderScrollbar(graphics, leftX + colWidth, listStartY, listEndY - listStartY, scrollAll, pageBlocks.size());
 
             int tabW = colWidth / 2; int favColor = midTabMode == 0 ? 0xFF4CAF50 : 0xFF666666; int histColor = midTabMode == 1 ? 0xFF4CAF50 : 0xFF666666; this.font.draw(graphics, "收藏夹", midX, listHeaderY, favColor); this.font.draw(graphics, "历史", midX + tabW, listHeaderY, histColor);
-            enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 10);
+            enableScissor(midX - 5, listStartY, midX + colWidth, listEndY + 2);
             if (midTabMode == 0) { String groupName = FavoritesManager.getCurrentGroup().name; this.font.draw(graphics, "[" + groupName + "]", midX, listHeaderY + 12, 0xFFAAAAAA); renderList(graphics, midX, listStartY - scrollFavorite, favoriteBlocks, selectedIds, 0xCC4CAF50, 0xAA000000, "favorite"); } else { renderHistoryList(graphics, midX, listStartY - scrollHistory); }
             disableScissor();
             renderScrollbar(graphics, midX + colWidth, listStartY, listEndY - listStartY, scrollFavorite, favoriteBlocks.size());
 
             this.font.draw(graphics, "已选列表", rightX, listHeaderY, 0xFFAAAAAA);
-            enableScissor(rightX - 5, listStartY, rightX + colWidth, listEndY + 10);
+            enableScissor(rightX - 5, listStartY, rightX + colWidth, listEndY + 2);
             renderList(graphics, rightX, listStartY - scrollSelected, selectedIds, null, 0xCCFF9800, 0xAA000000, "selected");
             disableScissor();
             renderScrollbar(graphics, rightX + colWidth, listStartY, listEndY - listStartY, scrollSelected, selectedIds.size());
         }
 
         int totalSelected = isReplaceMode ? (selectedSources.size() + selectedTargets.size()) : selectedIds.size();
+
+        // 预览框标题与校验提示
+        this.font.draw(graphics, isCommandMode ? "指令预览（可直接修改） · 比例全 100 = 等概率随机" : "ID 预览（可直接修改） · 比例全 100 = 等概率随机", margin, this.height - 113, 0xFF9FB4D0);
+        if (previewError != null) {
+            this.font.draw(graphics, "✕ " + previewError, margin, this.height - 82, 0xFFFF6B6B);
+        }
         Component selComp = Component.translatable("gui.block_id.selected_count", totalSelected);
         this.font.draw(graphics, selComp, this.width / 2 - this.font.width(selComp) / 2, tipY, 0xFFFFFFFF);
 
         
-        if (weightInputBlockId != null && weightInputField != null) {
+        if (weightInputBlockId != null && weightInputField != null && weightInputField.isFocused()) {
             renderWeightInput(graphics);
         }
 
@@ -473,7 +496,7 @@ public class BlockIdScreen extends Screen {
         }
 
         if (!isReplaceMode) {
-            int pageBtnY = listEndY + 5;
+            int pageBtnY = listEndY + 2;
             int pageBtnW = 50;
             int pageBtnH = 18;
             if (currentPage > 0) {
@@ -493,12 +516,12 @@ public class BlockIdScreen extends Screen {
         List<String> activeList = selectedIds;
         int activeScroll = scrollSelected;
         if (isReplaceMode) {
-            int srcIdx = selectedSources.indexOf(weightInputBlockId);
+            int srcIdx = (weightInputGroup == selectedSources) ? selectedSources.indexOf(weightInputBlockId) : -1;
             if (srcIdx >= 0) {
                 itemY = listStartY + srcIdx * ITEM_HEIGHT - scrollSelSrc;
                 activeList = selectedSources; activeScroll = scrollSelSrc;
             } else {
-                int tgtIdx = selectedTargets.indexOf(weightInputBlockId);
+                int tgtIdx = (weightInputGroup == selectedTargets) ? selectedTargets.indexOf(weightInputBlockId) : -1;
                 if (tgtIdx >= 0) {
                     itemY = rightLineY + 10 + tgtIdx * ITEM_HEIGHT - scrollSelTgt;
                     activeList = selectedTargets; activeScroll = scrollSelTgt;
@@ -511,8 +534,8 @@ public class BlockIdScreen extends Screen {
         if (itemY < 0) { weightInputBlockId = null; return; }
 
         
-        int inputX = rightX + colWidth - 74;
-        int inputY = itemY + 3;
+        int inputX = rightX + colWidth - 66;
+        int inputY = itemY + 4;
         weightInputField.x = inputX;
         weightInputField.y = inputY;
         weightInputField.render(graphics, 0, 0, 0);
@@ -616,6 +639,7 @@ public class BlockIdScreen extends Screen {
 
     private void renderList(PoseStack graphics, int x, int y, List<String> filtered, List<String> selectionList, int selectedColor, int normalColor, String listKind) {
         for (String blockId : filtered) {
+            if (y + ITEM_HEIGHT - 4 > listEndY) break;
             boolean isSelected = selectionList != null && selectionList.contains(blockId);
             if (isSelected) {
                 fill(graphics, x, y, x + colWidth, y + ITEM_HEIGHT - 4, selectedColor);
@@ -635,27 +659,26 @@ public class BlockIdScreen extends Screen {
                 
                 if ("selected".equals(listKind)) {
                     Map<String, String> props = blockProperties.get(blockId);
-                    int weight = effectivePercent(selectionList, blockId);
+                    int weight = blockWeights.getOrDefault(blockId, 100);
                     String displayText = stack.getHoverName().getString();
                     if (props != null && !props.isEmpty()) displayText += " [" + props.size() + "]";
                     this.font.draw(graphics, displayText, x + 26, y + 6, 0xFFFFFFFF);
 
                     
-                    int trackX = x + colWidth - 78;
-                    int trackW = 26;
-                    int trackY = y + 10;
-                    
-                    fill(graphics, trackX, trackY, trackX + trackW, trackY + 3, 0xFF333355);
-                    
-                    int fillW = (int)((float) trackW * weight / 100);
-                    fill(graphics, trackX, trackY, trackX + fillW, trackY + 3, 0xFF4a8ad5);
-                    
-                    int thumbX = trackX + fillW - 2;
-                    fill(graphics, thumbX, trackY - 2, thumbX + 4, trackY + 5, 0xFF88BBFF);
-                    
-                    String weightText = weight + "%";
-                    this.font.draw(graphics, weightText, trackX + trackW + 6, y + 6, 0xFFFFFF88);
-                    
+                    int trackX = x + colWidth - 66;
+                    int boxW = 40;
+                    int boxH = 14;
+                    int boxY = y + 4;
+                    boolean editing = blockId.equals(weightInputBlockId);
+                    if (!editing) {
+                        fill(graphics, trackX, boxY, trackX + boxW, boxY + boxH, 0xFF1E2942);
+                        fill(graphics, trackX, boxY, trackX + boxW, boxY + 1, 0xFF4a8ad5);
+                        fill(graphics, trackX, boxY + boxH - 1, trackX + boxW, boxY + boxH, 0xFF4a8ad5);
+                        fill(graphics, trackX, boxY, trackX + 1, boxY + boxH, 0xFF4a8ad5);
+                        fill(graphics, trackX + boxW - 1, boxY, trackX + boxW, boxY + boxH, 0xFF4a8ad5);
+                        String weightText = weight + "%";
+                        this.font.draw(graphics, weightText, trackX + (boxW - this.font.width(weightText)) / 2, y + 6, 0xFFFFFF88);
+                    }
                     this.font.draw(graphics, "⚙", x + colWidth - 12, y + 6, 0xFF66B0FF);
                 } else {
                     this.font.draw(graphics, stack.getHoverName().getString(), x + 26, y + 6, 0xFFFFFFFF);
@@ -808,18 +831,19 @@ public class BlockIdScreen extends Screen {
         if (idx < 0) idx = 0;
         idx = (idx + 1) % values.size();
         props.put(propName, values.get(idx));
+        refreshPreview();
     }
 
     private String formatBlockWithProperties(String blockId) {
-        return formatBlockWithProperties(blockId, false);
+        return formatBlockWithProperties(blockId, null);
     }
 
-    private String formatBlockWithProperties(String blockId, boolean includeWeight) {
+    /** weightPrefix 为 null 时不输出百分比前缀。 */
+    private String formatBlockWithProperties(String blockId, String weightPrefix) {
         Map<String, String> props = blockProperties.get(blockId);
         StringBuilder sb = new StringBuilder();
-        
-        if (includeWeight) {
-            sb.append(blockWeights.getOrDefault(blockId, 100)).append("%");
+        if (weightPrefix != null && !weightPrefix.isEmpty()) {
+            sb.append(weightPrefix);
         }
         sb.append(blockId);
         if (props != null && !props.isEmpty()) {
@@ -835,34 +859,24 @@ public class BlockIdScreen extends Screen {
         return sb.toString();
     }
 
+    /**
+     * 全部方块都是默认比例（100）时输出去掉百分比，交给 WorldEdit 等概率随机；
+     * 只要有方块改过比例，就把各自的数值原样带上，不做归一化——输入什么，指令里就是什么。
+     */
     private String joinBlocksWithProperties(List<String> blockIds) {
-        boolean anyCustom = false;
-        for (String id : blockIds) {
-            if (blockWeights.getOrDefault(id, 100) != 100) { anyCustom = true; break; }
-        }
+        if (blockIds == null || blockIds.isEmpty()) return "";
+        boolean equal = allWeightsEqual(blockIds);
         List<String> formatted = new ArrayList<>();
-        for (String id : blockIds) formatted.add(formatBlockWithProperties(id, anyCustom));
+        for (String id : blockIds) {
+            String prefix = equal ? null : blockWeights.getOrDefault(id, 100) + "%";
+            formatted.add(formatBlockWithProperties(id, prefix));
+        }
         return String.join(",", formatted);
     }
 
     private String joinBlocksWithoutWeight(List<String> blockIds) {
         List<String> formatted = new ArrayList<>();
-        for (String id : blockIds) {
-            Map<String, String> props = blockProperties.get(id);
-            StringBuilder sb = new StringBuilder();
-            sb.append(id);
-            if (props != null && !props.isEmpty()) {
-                sb.append("[");
-                boolean first = true;
-                for (Map.Entry<String, String> entry : props.entrySet()) {
-                    if (!first) sb.append(",");
-                    sb.append(entry.getKey()).append("=").append(entry.getValue());
-                    first = false;
-                }
-                sb.append("]");
-            }
-            formatted.add(sb.toString());
-        }
+        for (String id : blockIds) formatted.add(formatBlockWithProperties(id, null));
         return String.join(",", formatted);
     }
 
@@ -874,24 +888,11 @@ public class BlockIdScreen extends Screen {
         return t;
     }
 
-    private int effectivePercent(List<String> group, String blockId) {
-        int total = totalWeight(group);
-        if (total <= 0) return 100;
-        return (int) Math.round((double) blockWeights.getOrDefault(blockId, 100) / total * 100);
-    }
 
-    private int rawWeightForPercent(List<String> group, String targetId, int pct) {
-        pct = Math.max(1, Math.min(99, pct));
-        int total = totalWeight(group);
-        int others = total - blockWeights.getOrDefault(targetId, 100);
-        if (others <= 0) others = 1;
-        int raw = (int) Math.round((double) pct / (100.0 - pct) * others);
-        return Math.max(1, Math.min(9999, raw));
-    }
 
     private void setWeight(List<String> blockIds, String targetId, int newWeight) {
         if (blockIds.size() == 1) { blockWeights.put(targetId, 100); return; }
-        newWeight = Math.max(1, Math.min(9999, newWeight));
+        newWeight = Math.max(1, Math.min(1000000, newWeight));
         blockWeights.put(targetId, newWeight);
     }
 
@@ -918,7 +919,7 @@ public class BlockIdScreen extends Screen {
                     midTabMode = 1; return true;
                 }
             }
-            int pageBtnY = listEndY + 5;
+            int pageBtnY = listEndY + 2;
             int pageBtnW = 50;
             if (mouseY >= pageBtnY && mouseY <= pageBtnY + 18) {
                 if (mouseX >= leftX && mouseX <= leftX + pageBtnW && currentPage > 0) {
@@ -931,7 +932,7 @@ public class BlockIdScreen extends Screen {
             if (midTabMode == 1 && mouseX >= midX && mouseX <= midX + colWidth) {
                 int y = listStartY - scrollHistory;
                 for (int i = 0; i < historyItems.size(); i++) {
-                    if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
+                    if (mouseY >= y && mouseY <= Math.min(y + ITEM_HEIGHT - 4, listEndY)) {
                         HistoryManager.HistoryItem item = historyItems.get(i);
                         this.minecraft.keyboardHandler.setClipboard(item.content);
                         this.minecraft.player.displayClientMessage(Component.literal("已复制历史记录: " + item.content), true);
@@ -998,7 +999,7 @@ public class BlockIdScreen extends Screen {
             int y = listStartY - (isReplaceMode ? scrollSrc : scrollAll);
             List<String> leftList = isReplaceMode ? cachedFilteredAll : getCurrentPageBlocks();
             for (String blockId : leftList) {
-                if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
+                if (mouseY >= y && mouseY <= Math.min(y + ITEM_HEIGHT - 4, listEndY)) {
                     if (mouseX >= leftX + colWidth - 16 && mouseX <= leftX + colWidth) toggleFavorite(blockId);
                     else {
                         if (isReplaceMode) toggleSelection(selectedSources, blockId);
@@ -1024,7 +1025,7 @@ public class BlockIdScreen extends Screen {
 
             int y = listStartY - scroll;
             for (String blockId : targetList) {
-                if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
+                if (mouseY >= y && mouseY <= Math.min(y + ITEM_HEIGHT - 4, listEndY)) {
                     if (mouseX >= midX + colWidth - 16 && mouseX <= midX + colWidth) toggleFavorite(blockId);
                     else {
                         if (isReplaceMode) toggleSelection(selectedTargets, blockId);
@@ -1041,23 +1042,10 @@ public class BlockIdScreen extends Screen {
             if (isReplaceMode) {
                 int ySrc = listStartY - scrollSelSrc;
                 for (String blockId : selectedSources) {
-                    if (mouseY >= ySrc && mouseY <= ySrc + ITEM_HEIGHT - 4) {
+                    if (mouseY >= ySrc && mouseY <= Math.min(ySrc + ITEM_HEIGHT - 4, listEndY)) {
                         int relX = (int) (mouseX - rightX);
                         if (relX >= colWidth - 12) {
                             editingBlockId = blockId; propScroll = 0;
-                        } else if (relX >= colWidth - 78 && relX < colWidth - 52) {
-                            int trackX = colWidth - 78;
-                            int pct = (int)((float)(relX - trackX) / 26 * 100);
-                            if (hasControlDown()) {
-                                
-                                openWeightInput(blockId);
-                            } else {
-                                draggingWeightBlockId = blockId;
-                                setWeight(selectedSources, blockId, pct);
-                            }
-                        } else if (relX >= colWidth - 52 && relX < colWidth - 24 && hasControlDown()) {
-                            
-                            openWeightInput(blockId);
                         }
                         
                         return true;
@@ -1067,21 +1055,13 @@ public class BlockIdScreen extends Screen {
 
                 int yTgt = rightLineY + 10 - scrollSelTgt;
                 for (String blockId : selectedTargets) {
-                    if (mouseY >= yTgt && mouseY <= yTgt + ITEM_HEIGHT - 4) {
+                    if (mouseY >= yTgt && mouseY <= Math.min(yTgt + ITEM_HEIGHT - 4, listEndY)) {
                         int relX = (int) (mouseX - rightX);
                         if (relX >= colWidth - 12) {
                             editingBlockId = blockId; propScroll = 0;
-                        } else if (relX >= colWidth - 78 && relX < colWidth - 52) {
-                            if (hasControlDown()) openWeightInput(blockId);
-                            else {
-                                int trackX = colWidth - 78;
-                                int pct = (int)((float)(relX - trackX) / 26 * 100);
-                                draggingWeightBlockId = blockId;
-                                setWeight(selectedTargets, blockId, rawWeightForPercent(selectedTargets, blockId, pct));
-                            }
-                        } else if (relX >= colWidth - 52 && relX < colWidth - 24 && hasControlDown()) {
-                            openWeightInput(blockId);
-                        }
+                        } else if (relX >= colWidth - 68 && relX <= colWidth - 20) {
+                              openWeightInput(blockId, selectedTargets);
+                          }
                         
                         return true;
                     }
@@ -1090,21 +1070,13 @@ public class BlockIdScreen extends Screen {
             } else {
                 int y = listStartY - scrollSelected;
                 for (String blockId : selectedIds) {
-                    if (mouseY >= y && mouseY <= y + ITEM_HEIGHT - 4) {
+                    if (mouseY >= y && mouseY <= Math.min(y + ITEM_HEIGHT - 4, listEndY)) {
                         int relX = (int) (mouseX - rightX);
                         if (relX >= colWidth - 12) {
                             editingBlockId = blockId; propScroll = 0;
-                        } else if (relX >= colWidth - 78 && relX < colWidth - 52) {
-                            if (hasControlDown()) openWeightInput(blockId);
-                            else {
-                                int trackX = colWidth - 78;
-                                int pct = (int)((float)(relX - trackX) / 26 * 100);
-                                draggingWeightBlockId = blockId;
-                                setWeight(selectedIds, blockId, rawWeightForPercent(selectedIds, blockId, pct));
-                            }
-                        } else if (relX >= colWidth - 52 && relX < colWidth - 24 && hasControlDown()) {
-                            openWeightInput(blockId);
-                        }
+                        } else if (relX >= colWidth - 68 && relX <= colWidth - 20) {
+                              openWeightInput(blockId, selectedIds);
+                          }
                         
                         return true;
                     }
@@ -1115,16 +1087,20 @@ public class BlockIdScreen extends Screen {
         return false;
     }
 
-    private void openWeightInput(String blockId) {
+    /**
+     * 打开权重输入框。显示的是「这个方块占多少百分比」，输入框预填当前百分比，
+     * 用户直接改数字即可（也可以带 % 号，带不带都认）。
+     */
+    private void openWeightInput(String blockId, List<String> group) {
         weightInputBlockId = blockId;
-        int weight = blockWeights.getOrDefault(blockId, 100);
+        weightInputGroup = group;
+        int pct = blockWeights.getOrDefault(blockId, 100);
         if (weightInputField == null) {
-            weightInputField = new EditBox(this.font, 0, 0, 50, 16, Component.literal(""));
-            weightInputField.setMaxLength(4);
-            weightInputField.setFilter(s -> s.isEmpty() || s.matches("\\d{1,4}"));
+            weightInputField = new EditBox(this.font, 0, 0, 40, 14, Component.literal(""));
+            weightInputField.setMaxLength(5);
+            weightInputField.setFilter(this::isValidPercentText);
         }
-        weightInputField.setValue(String.valueOf(weight));
-        weightInputField.setFocus(true);
+        weightInputField.setValue(String.valueOf(pct));
         this.setFocused(weightInputField);
     }
 
@@ -1142,54 +1118,181 @@ public class BlockIdScreen extends Screen {
 
     private void confirmWeightInput() {
         if (weightInputBlockId == null || weightInputField == null) return;
-        try {
-            int val = Integer.parseInt(weightInputField.getValue());
-            val = Math.max(1, Math.min(9999, val));
-            
-            if (isReplaceMode) {
-                if (selectedSources.contains(weightInputBlockId)) {
-                    setWeight(selectedSources, weightInputBlockId, val);
-                } else if (selectedTargets.contains(weightInputBlockId)) {
-                    setWeight(selectedTargets, weightInputBlockId, val);
-                }
+        String raw = weightInputField.getValue().replace('\uFF05', '%').replace("%", "").trim();
+        List<String> group = weightInputGroup != null ? weightInputGroup
+                : (isReplaceMode ? selectedTargets : selectedIds);
+        if (group != null && !group.isEmpty()) {
+            if (raw.isEmpty() || group.size() == 1) {
+                blockWeights.put(weightInputBlockId, 100);
             } else {
-                setWeight(selectedIds, weightInputBlockId, val);
+                try {
+                    // 输入什么就存什么：比例是相对权重，不用凑满 100，也不做二次换算
+                    int pct = Integer.parseInt(raw);
+                    blockWeights.put(weightInputBlockId, Math.max(1, Math.min(100, pct)));
+                } catch (NumberFormatException ignored) {}
             }
-        } catch (NumberFormatException ignored) {}
+        }
         weightInputBlockId = null;
-        weightInputField.setFocus(false);
+        this.setFocused(null);
+        refreshPreview();
     }
 
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        if (draggingWeightBlockId != null && button == 0) {
-            
-            double trackStart = rightX + colWidth - 78;
-            double trackEnd = rightX + colWidth - 52;
-            double pct = (mouseX - trackStart) / (trackEnd - trackStart) * 100;
-            int val = (int) Math.max(1, Math.min(99, Math.round(pct)));
-            if (isReplaceMode) {
-                if (selectedSources.contains(draggingWeightBlockId)) {
-                    setWeight(selectedSources, draggingWeightBlockId, rawWeightForPercent(selectedSources, draggingWeightBlockId, val));
-                } else if (selectedTargets.contains(draggingWeightBlockId)) {
-                    setWeight(selectedTargets, draggingWeightBlockId, rawWeightForPercent(selectedTargets, draggingWeightBlockId, val));
-                }
+
+    /** 允许空串、数字，以及数字后跟一个百分号（半角或全角）；其余一律拦下。 */
+    private boolean isValidPercentText(String text) {
+        if (text == null || text.isEmpty()) return true;
+        String t = text.trim().replace('\uFF05', '%');
+        if (t.endsWith("%")) t = t.substring(0, t.length() - 1);
+        return t.matches("\\d{0,3}");
+    }
+
+    private boolean allWeightsEqual(List<String> group) {
+        if (group == null || group.isEmpty()) return true;
+        int first = blockWeights.getOrDefault(group.get(0), 100);
+        for (String id : group) {
+            if (blockWeights.getOrDefault(id, 100) != first) return false;
+        }
+        return true;
+    }
+
+
+
+
+    /** 按当前选择拼出默认的指令/ID 文本（不含预览框里的人工修改）。 */
+    private String buildDefaultOutput() {
+        if (isReplaceMode) {
+            String src = joinBlocksWithoutWeight(selectedSources);
+            String tgt = joinBlocksWithProperties(selectedTargets);
+            if (src.isEmpty() || tgt.isEmpty()) return "";
+            return isCommandMode ? ("//replace " + src + " " + tgt) : (src + " " + tgt);
+        }
+        String blocks = joinBlocksWithProperties(selectedIds);
+        if (blocks.isEmpty()) return "";
+        return isCommandMode ? ("//set " + blocks) : blocks;
+    }
+
+    /** 选择或比例变化后刷新预览框。 */
+    private void refreshPreview() {
+        if (previewField == null) return;
+        previewField.setValue(buildDefaultOutput());
+        validatePreview();
+    }
+
+    /** 校验预览框当前内容；不合法时置红字提示。 */
+    private boolean validatePreview() {
+        if (previewField == null) { previewError = null; return true; }
+        String text = previewField.getValue().trim();
+        if (text.isEmpty()) { previewError = null; return true; }
+        String err = validateOutput(text);
+        previewError = (err == null) ? null : "\u5f53\u524d\u6307\u4ee4\u683c\u5f0f/\u65b9\u5757ID\u4e0d\u6b63\u786e";
+        return err == null;
+    }
+
+    /** 校验完整输出文本；返回 null 表示通过，否则返回具体原因。 */
+    private String validateOutput(String text) {
+        if (text == null || text.isEmpty()) return "\u6ca1\u6709\u5185\u5bb9\u53ef\u8f93\u51fa";
+        String body = text;
+        if (isCommandMode) {
+            if (body.startsWith("//set ")) {
+                body = body.substring(6);
+            } else if (body.startsWith("//replace ")) {
+                body = body.substring(10);
+                int sp = body.indexOf(' ');
+                if (sp < 0) return "//replace \u9700\u8981\u300c\u6e90\u65b9\u5757 \u76ee\u6807\u65b9\u5757\u300d\u4e24\u6bb5";
+                String e1 = validateGenerated(body.substring(0, sp).trim());
+                if (e1 != null) return "\u6e90\u65b9\u5757\uff1a" + e1;
+                body = body.substring(sp + 1).trim();
             } else {
-                setWeight(selectedIds, draggingWeightBlockId, rawWeightForPercent(selectedIds, draggingWeightBlockId, val));
+                return "\u6307\u4ee4\u9700\u4ee5 //set \u6216 //replace \u5f00\u5934";
             }
-            return true;
+        } else if (isReplaceMode) {
+            // ID 模式下替换结果是「源方块组 目标方块组」两段，按第一个空格拆开分别校验
+            int sp = body.indexOf(' ');
+            if (sp < 0) return "替换结果需要「源方块 目标方块」两段";
+            String errSrc = validateGenerated(body.substring(0, sp).trim());
+            if (errSrc != null) return "源方块：" + errSrc;
+            body = body.substring(sp + 1).trim();
         }
-        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+        return validateGenerated(body.trim());
     }
 
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (draggingWeightBlockId != null) {
-            draggingWeightBlockId = null;
-            return true;
+    /** 当前要复制/执行的内容：以预览框为准；校验不通过返回 null，并在动作栏说明原因。 */
+    private String currentOutput() {
+        if (previewField == null) return null;
+        String text = previewField.getValue().trim();
+        if (text.isEmpty()) {
+            previewError = null;
+            if (this.minecraft != null && this.minecraft.player != null) {
+                this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
+            }
+            return null;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        String err = validateOutput(text);
+        previewError = (err == null) ? null : "\u5f53\u524d\u6307\u4ee4\u683c\u5f0f/\u65b9\u5757ID\u4e0d\u6b63\u786e";
+        if (err != null) {
+            if (this.minecraft != null && this.minecraft.player != null) {
+                this.minecraft.player.displayClientMessage(
+                        Component.literal("\u3010Block_ID\u3011" + err), true);
+            }
+            return null;
+        }
+        return text;
     }
+
+    /** 校验生成的方块串能否被 WorldEdit 正确解析；返回 null 表示通过。 */
+    private String validateGenerated(String generated) {
+        if (generated == null || generated.isEmpty()) return "\u6ca1\u6709\u751f\u6210\u5185\u5bb9";
+        List<String> entries = splitTopLevel(generated);
+        boolean withWeight = false, withoutWeight = false;
+        for (String entry : entries) {
+            String s = entry.trim();
+            if (s.isEmpty()) return "\u5b58\u5728\u7a7a\u6761\u76ee";
+            int pctIdx = s.indexOf('%');
+            if (pctIdx >= 0) {
+                String num = s.substring(0, pctIdx);
+                if (!num.matches("\\d{1,7}")) return "\u6743\u91cd\u4e0d\u662f\u6570\u5b57\uff1a" + s;
+                if (Integer.parseInt(num) <= 0) return "\u6743\u91cd\u5fc5\u987b\u5927\u4e8e 0\uff1a" + s;
+                withWeight = true;
+                s = s.substring(pctIdx + 1);
+            } else {
+                withoutWeight = true;
+            }
+            int bracket = s.indexOf('[');
+            String idPart = bracket >= 0 ? s.substring(0, bracket) : s;
+            if (!idPart.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) return "\u65b9\u5757 ID \u4e0d\u5408\u6cd5\uff1a" + idPart;
+            if (bracket >= 0) {
+                if (!s.endsWith("]")) return "\u65b9\u5757\u72b6\u6001\u7f3a\u5c11\u53f3\u62ec\u53f7\uff1a" + s;
+                String body = s.substring(bracket + 1, s.length() - 1);
+                if (body.isEmpty()) return "\u65b9\u5757\u72b6\u6001\u4e3a\u7a7a\uff1a" + s;
+                for (String kv : body.split(",")) {
+                    if (!kv.matches("[a-z0-9_]+=[a-z0-9_.-]+")) return "\u65b9\u5757\u72b6\u6001\u683c\u5f0f\u4e0d\u5bf9\uff1a" + kv;
+                }
+            }
+        }
+        if (withWeight && withoutWeight) return "\u90e8\u5206\u5e26\u6743\u91cd\u3001\u90e8\u5206\u4e0d\u5e26\uff0cWorldEdit \u4f1a\u6309\u9519\u8bef\u6bd4\u4f8b\u751f\u6210";
+        return null;
+    }
+
+    /** 按顶层逗号切分，方括号里的逗号（方块状态）不参与切分。 */
+    private List<String> splitTopLevel(String s) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '[') depth++;
+            else if (c == ']') depth--;
+            if (c == ',' && depth == 0) {
+                out.add(cur.toString());
+                cur.setLength(0);
+            } else {
+                cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
+    }
+
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
@@ -1274,6 +1377,7 @@ public class BlockIdScreen extends Screen {
             list.add(blockId);
             blockWeights.put(blockId, 100);
         }
+        refreshPreview();
     }
 
     private int getTotalPages() {
