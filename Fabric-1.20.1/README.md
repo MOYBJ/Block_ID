@@ -5,7 +5,8 @@ Minecraft 1.20.1 方块ID管理与 WorldEdit 指令生成客户端模组（Fabri
 ## 功能
 
 - 🎯 方块ID快速复制（多选，逗号分隔）
-- ⚡ WorldEdit 指令一键生成（`//set`、`//replace`）
+- 🎨 界面贴图化：面板与按钮走 PNG 九宫格，资源包覆盖 `assets/block_id/textures/gui/` 即可换肤
+- ⚡ WorldEdit 指令一键生成（`//set`、`//walls`、`//faces`、`//overlay`、`//replace`）
 - 🔧 方块状态属性可视化设置（朝向、半层、含水等）
 - 📊 放置率权重滑块，自动归一化 100%
 - 🔍 智能搜索（中文名 / 英文ID / 拼音首字母）
@@ -14,7 +15,7 @@ Minecraft 1.20.1 方块ID管理与 WorldEdit 指令生成客户端模组（Fabri
 
 ## 版本
 
-当前版本：**2.1.2.5-Beta**
+当前版本：**2.1.3-Release**
 
 支持游戏版本：Minecraft 1.20.1
 支持加载器：Fabric Loader 0.15+

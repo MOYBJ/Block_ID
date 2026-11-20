@@ -28,6 +28,19 @@ public class BlockIdScreen extends Screen {
     public static boolean isReplaceMode = false;
     public static boolean isCommandMode = false;
 
+    /** 指令模式下可选的填充类指令（都只吃一个方块列表）。 */
+    private static final String[] FILL_COMMANDS = {"set", "walls", "faces", "overlay"};
+    private static int fillCommandIndex = 0;
+
+    /** 下拉菜单的每一行高度。 */
+    private static final int MENU_ROW_H = 15;
+    private static boolean cmdMenuOpen = false;
+
+    /** 指令下拉的命中区（每帧绘制时记录）。 */
+    private boolean menuVisible = false;
+    private int btnX, btnY, btnW, btnH;
+    private int menuX, menuY, menuW, menuH;
+
     
     private boolean targetTabMode = false;
     private int midTabMode = 0;
@@ -267,7 +280,7 @@ public class BlockIdScreen extends Screen {
             }));
         } else {
             if (!isReplaceMode) {
-                this.addRenderableWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.literal("复制 (Set)"), b -> {
+                this.addRenderableWidget(new Button(centerX - 105, bottomBtnY, 100, 20, Component.translatable("gui.block_id.set"), b -> {
                         if (selectedIds.isEmpty()) {
                             this.minecraft.player.displayClientMessage(Component.translatable("gui.block_id.please_select"), true);
                             return;
@@ -388,15 +401,11 @@ public class BlockIdScreen extends Screen {
         this.font.draw(graphics, Component.translatable("gui.block_id.title"), this.width / 2 - this.font.width(Component.translatable("gui.block_id.title")) / 2, 15, 0xFFFFFFFF);
 
         
-        int panelBg = 0x90000000;
-        int panelBorder = 0xFF3a6ea5;
-        fill(graphics, leftX - 3, listStartY - 3, leftX + colWidth + scrollBarWidth + 3, listEndY + 3, panelBg);
-        fill(graphics, midX - 3, listStartY - 3, midX + colWidth + scrollBarWidth + 3, listEndY + 3, panelBg);
-        fill(graphics, rightX - 3, listStartY - 3, rightX + colWidth + 3, listEndY + 3, panelBg);
+        int panelH = listEndY - listStartY + 6;
+        GuiSkin.panel(graphics, leftX - 3, listStartY - 3, colWidth + scrollBarWidth + 6, panelH);
+        GuiSkin.panel(graphics, midX - 3, listStartY - 3, colWidth + scrollBarWidth + 6, panelH);
+        GuiSkin.panel(graphics, rightX - 3, listStartY - 3, colWidth + 6, panelH);
         
-        fill(graphics, leftX - 3, listStartY - 3, leftX + colWidth + scrollBarWidth + 3, listStartY - 2, panelBorder);
-        fill(graphics, midX - 3, listStartY - 3, midX + colWidth + scrollBarWidth + 3, listStartY - 2, panelBorder);
-        fill(graphics, rightX - 3, listStartY - 3, rightX + colWidth + 3, listStartY - 2, panelBorder);
 
         super.render(graphics, mouseX, mouseY, partialTick);
 
@@ -478,7 +487,11 @@ public class BlockIdScreen extends Screen {
         int totalSelected = isReplaceMode ? (selectedSources.size() + selectedTargets.size()) : selectedIds.size();
 
         // 预览框标题与校验提示
-        this.font.draw(graphics, isCommandMode ? "指令预览（可直接修改） · 比例全 100 = 等概率随机" : "ID 预览（可直接修改） · 比例全 100 = 等概率随机", margin, this.height - 113, 0xFF9FB4D0);
+        String previewLabel = isCommandMode
+                ? "指令预览（可直接修改） · 比例全 100 = 等概率随机"
+                : "ID 预览（可直接修改） · 比例全 100 = 等概率随机";
+        this.font.draw(graphics, previewLabel, margin, this.height - 113, 0xFF9FB4D0);
+        renderCommandMenu(graphics);
         if (previewError != null) {
             this.font.draw(graphics, "✕ " + previewError, margin, this.height - 82, 0xFFFF6B6B);
         }
@@ -496,18 +509,69 @@ public class BlockIdScreen extends Screen {
         }
 
         if (!isReplaceMode) {
-            int pageBtnY = listEndY + 2;
+            int pageBtnY = listEndY + 4;
             int pageBtnW = 50;
-            int pageBtnH = 18;
+            int pageBtnH = 16;
             if (currentPage > 0) {
-                fill(graphics, leftX, pageBtnY, leftX + pageBtnW, pageBtnY + pageBtnH, 0xFF4CAF50);
-                this.font.draw(graphics, "上一页", leftX + pageBtnW / 2 - this.font.width("上一页") / 2, pageBtnY + 5, 0xFFFFFFFF);
+                GuiSkin.button(graphics, leftX, pageBtnY, pageBtnW, pageBtnH, true);
+                this.font.draw(graphics, "上一页", leftX + pageBtnW / 2 - this.font.width("上一页") / 2, pageBtnY + 4, 0xFFFFFFFF);
             }
             if (currentPage < getTotalPages() - 1) {
-                fill(graphics, leftX + colWidth - pageBtnW, pageBtnY, leftX + colWidth, pageBtnY + pageBtnH, 0xFF4CAF50);
-                this.font.draw(graphics, "下一页", leftX + colWidth - pageBtnW / 2 - this.font.width("下一页") / 2, pageBtnY + 5, 0xFFFFFFFF);
+                GuiSkin.button(graphics, leftX + colWidth - pageBtnW, pageBtnY, pageBtnW, pageBtnH, true);
+                this.font.draw(graphics, "下一页", leftX + colWidth - pageBtnW / 2 - this.font.width("下一页") / 2, pageBtnY + 4, 0xFFFFFFFF);
             }
         }
+    }
+
+    /**
+     * 指令下拉菜单：按钮固定在预览标题右端，点开后向上弹出四条填充指令，
+     * 每条后面跟语言文件里的说明（gui.block_id.cmd.*）。
+     */
+    private void renderCommandMenu(PoseStack graphics) {
+        menuVisible = isCommandMode && !isReplaceMode;
+        if (!menuVisible) {
+            cmdMenuOpen = false;
+            return;
+        }
+        String current = "//" + FILL_COMMANDS[fillCommandIndex];
+        btnW = this.font.width(current) + 26;
+        btnH = 12;
+        btnX = this.width - margin - btnW;
+        btnY = this.height - 118;
+        GuiSkin.button(graphics, btnX, btnY, btnW, btnH, cmdMenuOpen);
+        this.font.draw(graphics, current, btnX + 7, btnY + 2, 0xFFE6EEFF);
+        // 默认字体没有 ▾，用三行像素画个下拉三角
+        int ax = btnX + btnW - 12;
+        int ay = btnY + 5;
+        for (int i = 0; i < 3; i++) {
+            fill(graphics, ax + i, ay + i, ax + 7 - i, ay + i + 1, 0xFFCBD8F2);
+        }
+
+        if (!cmdMenuOpen) {
+            menuH = 0;
+            return;
+        }
+        menuW = 190;
+        menuH = FILL_COMMANDS.length * MENU_ROW_H + 6;
+        menuX = this.width - margin - menuW;
+        menuY = btnY - 4 - menuH;
+
+        fill(graphics, menuX - 1, menuY - 1, menuX + menuW + 1, menuY + menuH + 1, 0xFF3A4A66);
+        fill(graphics, menuX, menuY, menuX + menuW, menuY + menuH, 0xFF101828);
+        for (int i = 0; i < FILL_COMMANDS.length; i++) {
+            int rowY = menuY + 3 + i * MENU_ROW_H;
+            boolean on = i == fillCommandIndex;
+            if (on) {
+                fill(graphics, menuX + 1, rowY, menuX + menuW - 1, rowY + MENU_ROW_H - 1, 0xFF2D5BA8);
+            }
+            this.font.draw(graphics, "//" + FILL_COMMANDS[i], menuX + 8, rowY + 4, on ? 0xFFFFFFFF : 0xFFA9BBD8);
+            String desc = Component.translatable("gui.block_id.cmd." + FILL_COMMANDS[i]).getString();
+            this.font.draw(graphics, desc, menuX + 64, rowY + 4, on ? 0xFFD8E4FF : 0xFF7C8BA6);
+        }
+    }
+
+    private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
+        return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 
     private void renderWeightInput(PoseStack graphics) {
@@ -556,14 +620,10 @@ public class BlockIdScreen extends Screen {
         int panelY = this.height - panelH - 5; 
 
         
-        fill(graphics, panelX, panelY, panelX + panelW, panelY + panelH, 0xFF141428);
-        fill(graphics, panelX, panelY, panelX + panelW, panelY + 1, 0xFF4a8ad5);
-        fill(graphics, panelX, panelY + panelH - 1, panelX + panelW, panelY + panelH, 0xFF4a8ad5);
-        fill(graphics, panelX, panelY, panelX + 1, panelY + panelH, 0xFF4a8ad5);
-        fill(graphics, panelX + panelW - 1, panelY, panelX + panelW, panelY + panelH, 0xFF4a8ad5);
+        GuiSkin.panel(graphics, panelX, panelY, panelW, panelH);
 
         
-        fill(graphics, panelX + 1, panelY + 1, panelX + panelW - 1, panelY + headerH, 0xFF1a2540);
+        fill(graphics, panelX + 3, panelY + 3, panelX + panelW - 3, panelY + headerH, 0x991A2540);
         String blockName = getBlockDisplayName(editingBlockId);
         String title = "⚙ " + blockName;
         if (this.font.width(title) > panelW - 90) {
@@ -576,13 +636,15 @@ public class BlockIdScreen extends Screen {
         
         int closeX = panelX + panelW - 36;
         int closeY = panelY + 3;
-        fill(graphics, closeX, closeY, closeX + 30, closeY + 13, 0xFF8B2020);
+        GuiSkin.button(graphics, closeX, closeY, 30, 13, false);
+        fill(graphics, closeX, closeY, closeX + 30, closeY + 13, 0x558B2020);
         this.font.draw(graphics, "×", closeX + 15 - this.font.width("×") / 2, closeY + 3, 0xFFFFFFFF);
 
         
         int copyX = panelX + panelW - 74;
         int copyY = panelY + 3;
-        fill(graphics, copyX, copyY, copyX + 34, copyY + 13, 0xFF2a6a3a);
+        GuiSkin.button(graphics, copyX, copyY, 34, 13, true);
+        fill(graphics, copyX, copyY, copyX + 34, copyY + 13, 0x552A6A3A);
         this.font.draw(graphics, "复制", copyX + 17 - this.font.width("复制") / 2, copyY + 3, 0xFFFFFFFF);
 
         if (properties.isEmpty()) {
@@ -908,6 +970,28 @@ public class BlockIdScreen extends Screen {
     
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // 指令下拉优先响应
+        if (menuVisible) {
+            if (inRect(mouseX, mouseY, btnX, btnY, btnW, btnH)) {
+                cmdMenuOpen = !cmdMenuOpen;
+                return true;
+            }
+            if (cmdMenuOpen) {
+                for (int i = 0; i < FILL_COMMANDS.length; i++) {
+                    int rowY = menuY + 3 + i * MENU_ROW_H;
+                    if (inRect(mouseX, mouseY, menuX, rowY, menuW, MENU_ROW_H)) {
+                        fillCommandIndex = i;
+                        cmdMenuOpen = false;
+                        refreshPreview();
+                        return true;
+                    }
+                }
+                // 菜单内的空白也算命中，避免点穿到下面的列表
+                if (inRect(mouseX, mouseY, menuX, menuY, menuW, menuH)) return true;
+                cmdMenuOpen = false;
+                return true;
+            }
+        }
         if (!isReplaceMode) {
             int tabY = listHeaderY;
             int tabW = colWidth / 2;
@@ -1168,7 +1252,7 @@ public class BlockIdScreen extends Screen {
         }
         String blocks = joinBlocksWithProperties(selectedIds);
         if (blocks.isEmpty()) return "";
-        return isCommandMode ? ("//set " + blocks) : blocks;
+        return isCommandMode ? ("//" + FILL_COMMANDS[fillCommandIndex] + " " + blocks) : blocks;
     }
 
     /** 选择或比例变化后刷新预览框。 */
@@ -1193,8 +1277,17 @@ public class BlockIdScreen extends Screen {
         if (text == null || text.isEmpty()) return "\u6ca1\u6709\u5185\u5bb9\u53ef\u8f93\u51fa";
         String body = text;
         if (isCommandMode) {
-            if (body.startsWith("//set ")) {
-                body = body.substring(6);
+            boolean fillMatched = false;
+            for (String cmd : FILL_COMMANDS) {
+                String prefix = "//" + cmd + " ";
+                if (body.startsWith(prefix)) {
+                    body = body.substring(prefix.length());
+                    fillMatched = true;
+                    break;
+                }
+            }
+            if (fillMatched) {
+                // 已剥掉指令头，下面统一校验方块列表
             } else if (body.startsWith("//replace ")) {
                 body = body.substring(10);
                 int sp = body.indexOf(' ');
@@ -1203,7 +1296,7 @@ public class BlockIdScreen extends Screen {
                 if (e1 != null) return "\u6e90\u65b9\u5757\uff1a" + e1;
                 body = body.substring(sp + 1).trim();
             } else {
-                return "\u6307\u4ee4\u9700\u4ee5 //set \u6216 //replace \u5f00\u5934";
+                return "\u6307\u4ee4\u9700\u4ee5 //set / //walls / //faces / //overlay / //replace \u5f00\u5934";
             }
         } else if (isReplaceMode) {
             // ID 模式下替换结果是「源方块组 目标方块组」两段，按第一个空格拆开分别校验
